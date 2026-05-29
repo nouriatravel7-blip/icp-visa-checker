@@ -1,11 +1,14 @@
 import json, time, os, base64, gspread
 from datetime import datetime
-from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+from playwright.sync_api import sync_playwright
 from google.oauth2.service_account import Credentials
 
 GOOGLE_SHEET_ID = os.environ["GOOGLE_SHEET_ID"]
 ICP_URL     = "https://smartservices.icp.gov.ae/echannels/web/client/default.html#/fileValidity"
 ICP_API_URL = "https://beta.smartservices.icp.gov.ae/echannels/api/api/landing/fileValidityNew"
+
+# Credentials hardcoded as base64 (safe — no special characters)
+CREDS_B64 = "ewogICJ0eXBlIjogInNlcnZpY2VfYWNjb3VudCIsCiAgInByb2plY3RfaWQiOiAia2Vlbi1kZWZlbmRlci00OTc4MDctazEiLAogICJwcml2YXRlX2tleV9pZCI6ICI1N2M5ZjI2N2UwMjc0YmEzMjNhMjgzZDEwYmIyOTViZjgyYzU5OTVlIiwKICAicHJpdmF0ZV9rZXkiOiAiLS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tXG5NSUlFdlFJQkFEQU5CZ2txaGtpRzl3MEJBUUVGQUFTQ0JLY3dnZ1NqQWdFQUFvSUJBUUMrN1VXODg0S2xkdXFLXG5oM3RLZEMycEU0emQraUhRc0R1V1A3cG1LWFRLc05FakFjdDBjTVZIU0llcTFOVkVqWEdjL3lnVnRJMW96SlNFXG5DbkRyUkg0Nndxd1l1WTBqM1kvRTVmd2EzSENGUEJEelI3NE03c3dSQzBSelI2RjdpUlNLRzdJdEI2SWdHMWhEXG5iSTdFOEpHbWVWemFudUU2LytlNGVvbFNrK2k2OU4xNmpnUkJReGxNb3ExWHBuYXFCd2VXZHVuMW5MaktTOGRQXG56YWNEWDBWN1JJSmduQ3psM0JxN3FHYW4vdU5PUmZBSjJKWU9IcWhjRGNIUXg0T2w1b3NKaGEycmtZcUxtbXZ1XG4vRVRLSkovd1NRZ3dvU25RSm5LN0JjeWtyTE1hT0cvelA1Qm9INFJ2Z0RTdUpzcWwzUko3b3dXSnlxY1Eyb1VFXG5MSWErNkNzOUFnTUJBQUVDZ2dFQUl2UGhtenFTTFpRRVVvbUVlT2dsYnNsSk5kOERuMGFRRmd6REpVNU1Gd3BCXG5NekV5SzdZMGEzMGI5eHFCRTR4NFl1YzBVYXJzNDJWbWYvakFYTlc0YlNuejR3L2ZCcFNhYkErMWRENXNhL3ZIXG4xNTNIN1dxdkdhU3dLcEdQdnNPazZyYXd5djBWZ1Y2NExSbTcxbEo3TzVpR3R2QTBwLzR1eis5QTRnajVaM1k0XG4xeDhHTzJlZ3lORGR2bTFOZkV6ZzYvelNsY2lQMVg5RXZxVDNpNkt0S1B0VnVrUk1RMWd4N3JMT254UGRKTTNhXG5yMWx0elFQRDlKZGl1cFUvZUVLdmI5S2w2eWRzMWhrYTlZRUgyUkpSM1JYMzZWdDBLK05lUUVaRE1oVkdWRFdEXG5ReHVKSXhNSjlUVHlnQUxvMEZSdUpncnIvV1NoRFNkYVY4WnpVblhRcVFLQmdRRHJFQWx4V0ZYOXl1MDRQV2NDXG43YUM3WDQ4K1dvaFV2cXFSTFo0ZS9oUmk3ZS9UM1B2VUVqY2xoRFNOS2JwYU1pZTg4aGJzK01HZysrRUM3WC9pXG5ETW45RDZJRW9qaHZGcDd0LzdyWUg0bUltbkg0bmZXT1VJMWI0aEtCbWpLWmdVVW5EVzJYQ2VtK3Vlcyt1b0h3NG5cbjRVL0lvWFVaUHBDYlpnZG4rZWcwMnFBK0dRS0JnUURQN3RiQiswWWlLT2VyRWE0UHRhdXFmYkp2L2dvQW1mMkFcblBXM09QVm9FZXZzVTdtTWRDU3NwN3NuWkpNVEI4RENXK1RXc2QzUjlaWjgrNFdjU0YvcmlxZkVidS9kYkZac1Ncbm1FVFFvRU92T2lYU25INDFkQ0dvNG8wRzBrNnJJbWhiUy9lU04xSFRlYjRDMEpnczJpTTFhc3R2SFo5SlNGY3B2XG5QcXBFZ1NPeXhRS0JnQ2FHWVZYUFNZQ240b3NtSFJ6d3Z6Z1dhRTZxM2M4dDFKeW9vbEtvQjhWVEE4eHdXbUdlXG5mcVZLYnFaNElVK3BDclEvNVJ2L2hSU1NVNFY4VVVwR0dGQytZQ3BzUDkyTkVvMGxMWVZBUzVvRTNndXVBOWx3XG5Sb1dLb2ZFSTN5RHRoZ3JnWmtISWdpeG5oWFkyNk1ZR2VtSUNmRU9mNm1sZHBuY1hFVVNnVkVUNUFvR0FaQ3huXG5VQnJUQmQvNUJDUkhYQkFrdk1WRHNzcUxYUkRTM1BZN01WSERUVWRHTVNaTG41QnNPQTV2TmVxTjAvVDRJcjBRXG55NTdkQXhEdWhTZW9OVUpTUHVLcVlyY2lpc0lVN0ZkcFI2eitEcXdQenJCUDZYeVhZd3d5ajZGWWRMNHZZc1NvXG5XRi9UVWRvY0FpNFYxdGIvUDhQTk4vcmZpMll1R1h2eUlZQ3BoeFVDZ1lFQXVYd3BackZuSlc2b1BlSkNYOW5xXG5hM3luekJtNkVwTGVyNzVUeTQxRlo5eWJPSjAzalVWTEZVN1lKYk5UVWNjTE1TNTlhNHlnNmpNdkRyZjQ0eUN4XG5ZaE9pWi8vS3dOekpLNlpxMmcwV1U1ckFOWjZSeVNjS0NQclhKeS83Rmd2eVgzSFFMU2c2cGxnMGxVMER5Q0R5XG5iT1BZeFZ3elp2NU5pT3gzd3BsL1N5Yz1cbi0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS1cbiIsCiAgImNsaWVudF9lbWFpbCI6ICJpY3AtY2hlY2tlckBrZWVuLWRlZmVuZGVyLTQ5NzgwNy1rMS5pYW0uZ3NlcnZpY2VhY2NvdW50LmNvbSIsCiAgImNsaWVudF9pZCI6ICIxMTIxODA1MzA1MDY2NTczODYxNzMiLAogICJhdXRoX3VyaSI6ICJodHRwczovL2FjY291bnRzLmdvb2dsZS5jb20vby9vYXV0aDIvYXV0aCIsCiAgInRva2VuX3VyaSI6ICJodHRwczovL29hdXRoMi5nb29nbGVhcGlzLmNvbS90b2tlbiIsCiAgImF1dGhfcHJvdmlkZXJfeDUwOV9jZXJ0X3VybCI6ICJodHRwczovL3d3dy5nb29nbGVhcGlzLmNvbS9vYXV0aDIvdjEvY2VydHMiLAogICJjbGllbnRfeDUwOV9jZXJ0X3VybCI6ICJodHRwczovL3d3dy5nb29nbGVhcGlzLmNvbS9yb2JvdC92MS9tZXRhZGF0YS94NTA5L2ljcC1jaGVja2VyJTQwa2Vlbi1kZWZlbmRlci00OTc4MDctazEuaWFtLmdzZXJ2aWNlYWNjb3VudC5jb20iLAogICJ1bml2ZXJzZV9kb21haW4iOiAiZ29vZ2xlYXBpcy5jb20iCn0K"
 
 NATIONALITY_IDS = {
     "EGYPT":13,"INDONESIA":43,"INDIA":25,"PAKISTAN":24,
@@ -15,37 +18,20 @@ NATIONALITY_IDS = {
 }
 
 def connect_sheet():
-    # Read secret — try base64 first, then raw JSON
-    raw = os.environ.get("GOOGLE_CREDENTIALS", "").strip()
-    if not raw:
-        raise ValueError("GOOGLE_CREDENTIALS secret is empty!")
-    
-    # Try base64 decode first
-    try:
-        decoded = base64.b64decode(raw).decode("utf-8")
-        creds_dict = json.loads(decoded)
-        print("  Credentials loaded via base64")
-    except Exception:
-        # Try raw JSON
-        try:
-            creds_dict = json.loads(raw)
-            print("  Credentials loaded via raw JSON")
-        except Exception as e:
-            raise ValueError(f"Cannot parse credentials: {e}\nFirst 100 chars: {raw[:100]}")
-
+    print("  Decoding credentials...")
+    creds_dict = json.loads(base64.b64decode(CREDS_B64).decode("utf-8"))
     creds = Credentials.from_service_account_info(
         creds_dict,
         scopes=["https://spreadsheets.google.com/feeds",
                 "https://www.googleapis.com/auth/drive"]
     )
     gc = gspread.authorize(creds)
+    print("  Connected to Google!")
     return gc.open_by_key(GOOGLE_SHEET_ID).sheet1
-
 
 def get_captcha_token():
     print("  Getting Cloudflare token...")
     captured = {}
-
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=[
             "--no-sandbox","--disable-setuid-sandbox",
@@ -56,7 +42,6 @@ def get_captcha_token():
             viewport={"width":1366,"height":768}
         )
         page = ctx.new_page()
-
         def on_req(r):
             if "fileValidityNew" in r.url and r.method == "POST":
                 try:
@@ -64,7 +49,6 @@ def get_captcha_token():
                     if t: captured["token"] = t; print("  ✓ Token captured!")
                 except: pass
         page.on("request", on_req)
-
         try:
             page.goto(ICP_URL, wait_until="domcontentloaded", timeout=30000)
             page.wait_for_selector("input[type='radio']", timeout=15000)
@@ -95,7 +79,6 @@ def get_captcha_token():
             browser.close()
     return captured.get("token")
 
-
 def call_icp(emp, token):
     import requests
     nat_id = int(emp.get("NationalityId") or NATIONALITY_IDS.get(str(emp.get("Nationality","")).upper(),0))
@@ -112,13 +95,13 @@ def call_icp(emp, token):
         "isUsingCaptcha": True, "recaptchaResponse": token,
     }
     r = requests.post(ICP_API_URL, json=body, timeout=30, headers={
-        "Content-Type":"application/json","Accept":"application/json, text/plain, */*",
+        "Content-Type":"application/json",
+        "Accept":"application/json, text/plain, */*",
         "Origin":"https://smartservices.icp.gov.ae",
         "Referer":"https://smartservices.icp.gov.ae/echannels/web/client/default.html",
         "User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
     })
     return r.json()
-
 
 def classify(status, expire):
     s = (status or "").upper()
@@ -135,7 +118,6 @@ def classify(status, expire):
     if "ACTIVE" in s: return "🟢 OK", days
     return "⚪ UNKNOWN", days
 
-
 def main():
     print("="*55)
     print("  ICP Visa Status Checker — GitHub Actions")
@@ -147,7 +129,7 @@ def main():
     headers = sheet.row_values(1)
     print(f"  Found {len(rows)} employees")
     if not rows:
-        print("  Sheet is empty — add employees first!"); return
+        print("  Sheet is empty — please add employee data!"); return
 
     today = datetime.now().strftime("%d/%m/%Y")
     results = []
@@ -159,8 +141,7 @@ def main():
         print(f"\n[{i+1}/{len(rows)}] {name} — UID: {uid}")
 
         token = get_captcha_token()
-        if not token:
-            print("  ✗ No token"); continue
+        if not token: print("  ✗ No CAPTCHA token"); continue
 
         try:
             raw = call_icp(emp, token)
@@ -169,9 +150,9 @@ def main():
             print(f"  ✗ API error: {e}"); continue
 
         d = raw.get("data") or raw.get("result") or raw or {}
-        status   = (d.get("fileStatus") or d.get("status") or "UNKNOWN").upper()
-        expire   = d.get("fileExpireDate") or d.get("expireDate") or d.get("lastDateAllowedToEnterTheCountry")
-        file_no  = d.get("fileNo") or d.get("fileNoFormatted") or "N/A"
+        status  = (d.get("fileStatus") or d.get("status") or "UNKNOWN").upper()
+        expire  = d.get("fileExpireDate") or d.get("expireDate") or d.get("lastDateAllowedToEnterTheCountry")
+        file_no = d.get("fileNo") or d.get("fileNoFormatted") or "N/A"
         alert, days = classify(status, expire)
 
         print(f"  Status: {status} | Expiry: {expire} | Alert: {alert}")
