@@ -35,6 +35,9 @@ COL_ALERT         = "AlertLevel"
 COL_DAYS_LEFT     = "DaysLeft"
 COL_LAST_CHECKED  = "LastChecked"
 
+# Set to a small number (e.g. 5) for dry-run testing; 0 = process all employees
+MAX_TEST_EMPLOYEES = int(os.environ.get("MAX_TEST_EMPLOYEES", "0"))
+
 NATIONALITY_IDS = {
     "EGYPT":13,"INDONESIA":43,"INDIA":25,"PAKISTAN":24,
     "PHILIPPINES":40,"BANGLADESH":26,"NEPAL":39,"SRI LANKA":31,
@@ -262,7 +265,11 @@ def main():
                 print("\nFATAL: CAPTCHA required but could not capture token. Aborting.")
                 return
 
-        for i, emp in enumerate(rows):
+        employee_list = rows[:MAX_TEST_EMPLOYEES] if MAX_TEST_EMPLOYEES else rows
+        if MAX_TEST_EMPLOYEES:
+            print(f"\n⚠ DRY RUN — processing first {MAX_TEST_EMPLOYEES} employees only")
+
+        for i, emp in enumerate(employee_list):
             name = (emp.get("VISA  NAME ") or emp.get("VISA NAME") or
                     emp.get("Customer Name") or f"Row {i+2}")
             uid  = str(emp.get("Emirate Unified Number") or emp.get("UID") or "").strip()
