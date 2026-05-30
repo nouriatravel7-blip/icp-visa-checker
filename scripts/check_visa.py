@@ -79,20 +79,23 @@ def get_captcha_token():
 
 def call_icp(emp, token):
     import requests
-    nat_id = int(emp.get("NationalityId") or NATIONALITY_IDS.get(str(emp.get("Nationality","")).upper(),0))
-    dob = str(emp.get("DOB",""))
+    nat_id = int(emp.get("NationalityId") or NATIONALITY_IDS.get(str(emp.get("Nationality","")).upper(), 0))
+    dob = str(emp.get("DOB") or emp.get("dateOfBirth") or "")
     if "/" in dob:
         p = dob.split("/")
-        if len(p)==3 and len(p[2])==4: dob = f"{p[2]}/{p[1]}/{p[0]}"
+        if len(p) == 3 and len(p[2]) == 4:
+            dob = f"{p[2]}/{p[1]}/{p[0]}"
+    uid = str(emp.get("Emirate Unified Number") or emp.get("UID") or "")
     body = {
-        "fileModuleId": int(emp.get("FileModuleId",2)),
-        "longUnifiedNumber": str(emp.get("UID","")),
+        "fileModuleId": int(emp.get("fileModuleId") or emp.get("FileModuleId") or 2),
+        "longUnifiedNumber": uid,
         "nationalityId": nat_id,
         "dateOfBirth": dob,
         "serviceYear": None, "sequenceNumber": None, "expireDate": None,
         "isUsingCaptcha": True, "recaptchaResponse": token,
     }
-    r = requests.post(ICP_API_URL, json=body, timeout=30, headers={
+    import requests as req
+    r = req.post(ICP_API_URL, json=body, timeout=30, headers={
         "Content-Type":"application/json",
         "Accept":"application/json, text/plain, */*",
         "Origin":"https://smartservices.icp.gov.ae",
@@ -126,6 +129,7 @@ def main():
     rows = sheet.get_all_records()
     headers = sheet.row_values(1)
     print(f"  Found {len(rows)} employees")
+    print(f"  Sheet headers: {headers}")
     if not rows:
         print("  Sheet is empty — please add employee data!"); return
 
@@ -133,13 +137,19 @@ def main():
     results = []
 
     for i, emp in enumerate(rows):
-        name = emp.get("Name", f"Row {i+2}")
-        uid  = emp.get("UID","")
-        if not uid: print(f"\nSkipping {name} — no UID"); continue
+        # Support both old and new column names
+        name = (emp.get("VISA  NAME ") or emp.get("VISA_NAME") or
+                emp.get("Customer Name") or emp.get("Name") or f"Row {i+2}")
+        uid  = str(emp.get("Emirate Unified Number") or emp.get("UID") or "").strip()
+
+        if not uid:
+            print(f"\n[{i+1}/{len(rows)}] Skipping {name} — no UID"); continue
+
         print(f"\n[{i+1}/{len(rows)}] Checking: {name} — UID: {uid}")
 
         token = get_captcha_token()
-        if not token: print("  ✗ No CAPTCHA token, skipping"); continue
+        if not token:
+            print("  ✗ No CAPTCHA token, skipping"); continue
 
         try:
             raw = call_icp(emp, token)
@@ -148,21 +158,34 @@ def main():
             print(f"  ✗ API error: {e}"); continue
 
         d = raw.get("data") or raw.get("result") or raw or {}
-        status  = (d.get("fileStatus") or d.get("status") or "UNKNOWN").upper()
-        expire  = d.get("fileExpireDate") or d.get("expireDate") or d.get("lastDateAllowedToEnterTheCountry")
-        file_no = d.get("fileNo") or d.get("fileNoFormatted") or "N/A"
+        status   = (d.get("fileStatus") or d.get("status") or "UNKNOWN").upper()
+        expire   = (d.get("lastDateAllowedToEnterTheCountry") or
+                    d.get("fileExpireDate") or d.get("expireDate") or "")
+        file_no  = d.get("fileNo") or d.get("fileNoFormatted") or ""
+        file_iss = d.get("fileIssuanceDate") or d.get("issuanceDate") or ""
+        file_can = d.get("fileCancellationDate") or d.get("cancellationDate") or ""
         alert, days = classify(status, expire)
 
-        print(f"  ✓ Status: {status} | Expiry: {expire} | Alert: {alert}")
+        print(f"  ✓ Status: {status} | Last Date: {expire} | Alert: {alert}")
 
-        row = i + 2
-        for col, val in {
-            "FileNo": file_no, "FileStatus": status,
-            "ExpiryDate": expire or "", "DaysLeft": days if days is not None else "",
-            "AlertLevel": alert, "LastChecked": today
-        }.items():
-            if col in headers:
-                sheet.update_cell(row, headers.index(col)+1, val)
+        # Map to new column names — update only columns that exist in the sheet
+        col_map = {
+            "File No":               file_no,
+            "File Status":           status,
+            "File Issuance Date":    file_iss,
+            "Last Date Allowed":     expire,
+            "File Cancellation Date": file_can,
+            "AlertLevel":            alert,
+            "DaysLeft":              days if days is not None else "",
+            "LastChecked":           today,
+        }
+
+        row_num = i + 2
+        for col_name, val in col_map.items():
+            if col_name in headers:
+                sheet.update_cell(row_num, headers.index(col_name) + 1, val)
+            else:
+                print(f"  ⚠ Column '{col_name}' not found in sheet headers — skipping")
 
         results.append({"name": name, "status": status, "alert": alert})
         time.sleep(2)
