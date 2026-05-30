@@ -115,7 +115,7 @@ def classify(status, expire):
         except: pass
     if any(x in s for x in ["CANCEL","OVERSTAY","EXPIRED","REJECTED","ABSCONDING"]): return "🔴 CRITICAL", days
     if days is not None and days < 0: return "🔴 CRITICAL", days
-    if days is not None and days <= 30: return "🟡 WARNING", days
+    if days is not None and days <= 10: return "🟡 WARNING", days
     if "ACTIVE" in s: return "🟢 OK", days
     return "⚪ UNKNOWN", days
 
