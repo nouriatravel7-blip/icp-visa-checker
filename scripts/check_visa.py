@@ -162,8 +162,15 @@ def get_captcha_token(playwright_instance):
         print("  ✗ Failed to capture token")
     return token
 
-def call_icp(emp, token):
-    import requests
+ICP_HEADERS = {
+    "Content-Type": "application/json",
+    "Accept": "application/json, text/plain, */*",
+    "Origin": "https://smartservices.icp.gov.ae",
+    "Referer": "https://smartservices.icp.gov.ae/echannels/web/client/default.html",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+}
+
+def build_body(emp, token=None):
     nat_id = int(emp.get("NationalityId") or emp.get("Code") or
                  NATIONALITY_IDS.get(str(emp.get("Nationality","")).upper(), 0))
     dob = str(emp.get("dateOfBirth") or emp.get("DOB") or "")
@@ -172,22 +179,28 @@ def call_icp(emp, token):
         if len(p) == 3 and len(p[2]) == 4:
             dob = f"{p[2]}/{p[1]}/{p[0]}"
     uid = str(emp.get("Emirate Unified Number") or emp.get("UID") or "")
-    body = {
+    return {
         "fileModuleId": int(emp.get("fileModuleId") or emp.get("FileModuleId") or 2),
         "longUnifiedNumber": uid,
         "nationalityId": nat_id,
         "dateOfBirth": dob,
         "serviceYear": None, "sequenceNumber": None, "expireDate": None,
-        "isUsingCaptcha": True, "recaptchaResponse": token,
+        "isUsingCaptcha": bool(token),
+        "recaptchaResponse": token or "",
     }
-    r = requests.post(ICP_API_URL, json=body, timeout=30, headers={
-        "Content-Type": "application/json",
-        "Accept": "application/json, text/plain, */*",
-        "Origin": "https://smartservices.icp.gov.ae",
-        "Referer": "https://smartservices.icp.gov.ae/echannels/web/client/default.html",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
-    })
+
+def call_icp(emp, token=None):
+    import requests
+    r = requests.post(ICP_API_URL, json=build_body(emp, token),
+                      timeout=30, headers=ICP_HEADERS)
     return r.json()
+
+def requires_captcha(raw):
+    """Return True if the API response indicates a CAPTCHA token is required."""
+    if not raw:
+        return False
+    msg = str(raw).lower()
+    return any(x in msg for x in ["captcha", "recaptcha", "token invalid", "unauthorized", "blocked"])
 
 def classify(status, expire):
     s = (status or "").upper()
@@ -205,12 +218,6 @@ def classify(status, expire):
     if "ACTIVE" in s or (days is not None and days > 10): return "🟢 OK", days
     return "⚪ UNKNOWN", days
 
-def is_token_error(raw):
-    """Return True if the ICP API response indicates a bad/expired CAPTCHA token."""
-    if not raw:
-        return True
-    msg = str(raw).lower()
-    return any(x in msg for x in ["captcha", "token", "recaptcha", "invalid", "401", "403"])
 
 def main():
     print("="*55)
@@ -230,14 +237,31 @@ def main():
 
     today = datetime.now().strftime("%d/%m/%Y")
     results = []
-    TOKEN_REFRESH_EVERY = 50   # refresh CAPTCHA token after this many successful calls
+
+    # ── Probe: does the ICP API enforce CAPTCHA server-side? ──────────────────
+    probe_emp = next((r for r in rows if str(r.get("Emirate Unified Number","")).strip()), None)
+    needs_captcha = False
+    if probe_emp:
+        print("\nProbing ICP API without CAPTCHA token...")
+        try:
+            probe_raw = call_icp(probe_emp)
+            print(f"  Probe response: {str(probe_raw)[:300]}")
+            needs_captcha = requires_captcha(probe_raw)
+        except Exception as e:
+            print(f"  Probe error: {e}")
+            needs_captcha = True
+        print(f"  CAPTCHA enforcement: {'YES — will use browser' if needs_captcha else 'NO — direct API calls will work'}")
+
+    token = None
+    calls_since_refresh = 0
+    TOKEN_REFRESH_EVERY = 50
 
     with sync_playwright() as pw:
-        token = get_captcha_token(pw)
-        if not token:
-            print("\nFATAL: Could not capture CAPTCHA token. Aborting."); return
-
-        calls_since_refresh = 0
+        if needs_captcha:
+            token = get_captcha_token(pw)
+            if not token:
+                print("\nFATAL: CAPTCHA required but could not capture token. Aborting.")
+                return
 
         for i, emp in enumerate(rows):
             name = (emp.get("VISA  NAME ") or emp.get("VISA NAME") or
@@ -250,7 +274,7 @@ def main():
             print(f"\n[{i+1}/{len(rows)}] {name} — UID: {uid}")
 
             # Proactively refresh token every N employees
-            if calls_since_refresh >= TOKEN_REFRESH_EVERY:
+            if needs_captcha and calls_since_refresh >= TOKEN_REFRESH_EVERY:
                 print("  Refreshing CAPTCHA token...")
                 new_token = get_captcha_token(pw)
                 if new_token:
@@ -265,19 +289,18 @@ def main():
             except Exception as e:
                 print(f"  ✗ API error: {e}"); continue
 
-            # If ICP rejected the token, get a fresh one and retry once
-            if is_token_error(raw):
-                print("  Token rejected — refreshing and retrying...")
-                new_token = get_captcha_token(pw)
-                if not new_token:
-                    print("  ✗ Could not refresh token, skipping"); continue
-                token = new_token
-                calls_since_refresh = 0
+            # If the API now demands a token, get one and retry
+            if requires_captcha(raw) and not needs_captcha:
+                print("  API now requires CAPTCHA — fetching token and retrying...")
+                needs_captcha = True
+                token = get_captcha_token(pw)
+                if not token:
+                    print("  ✗ Could not get token, skipping"); continue
                 try:
                     raw = call_icp(emp, token)
-                    print(f"  ICP Response (retry): {str(raw)[:250]}")
+                    print(f"  ICP Response (with token): {str(raw)[:250]}")
                 except Exception as e:
-                    print(f"  ✗ Retry API error: {e}"); continue
+                    print(f"  ✗ Retry error: {e}"); continue
 
             d = raw.get("data") or raw.get("result") or raw or {}
             status   = (d.get("fileStatus") or d.get("status") or "UNKNOWN").upper()
