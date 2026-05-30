@@ -1,8 +1,24 @@
 import json, time, os, base64, gspread
 from datetime import datetime
 from playwright.sync_api import sync_playwright
-from playwright_stealth import stealth_sync
 from google.oauth2.service_account import Credentials
+
+# Inline stealth patches — hides headless/automation signals from Cloudflare Turnstile
+STEALTH_JS = """
+Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+Object.defineProperty(navigator, 'plugins', {get: () => ({length:3, item:()=>null, namedItem:()=>null, refresh:()=>{}})});
+Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => 8});
+Object.defineProperty(navigator, 'deviceMemory', {get: () => 8});
+window.chrome = {runtime:{}, loadTimes:function(){}, csi:function(){}, app:{}};
+const _origPermQuery = window.navigator.permissions && window.navigator.permissions.query.bind(window.navigator.permissions);
+if (_origPermQuery) {
+    window.navigator.permissions.query = (p) =>
+        p.name === 'notifications'
+            ? Promise.resolve({state: Notification.permission})
+            : _origPermQuery(p);
+}
+"""
 
 GOOGLE_SHEET_ID = os.environ["GOOGLE_SHEET_ID"]
 ICP_URL     = "https://smartservices.icp.gov.ae/echannels/web/client/default.html#/fileValidity"
@@ -59,7 +75,7 @@ def get_captcha_token(playwright_instance):
         timezone_id="Asia/Dubai",
     )
     page = ctx.new_page()
-    stealth_sync(page)  # patch navigator.webdriver, Chrome runtime, plugins, etc.
+    page.add_init_script(STEALTH_JS)  # patch navigator.webdriver, Chrome runtime, plugins, etc.
 
     def on_req(r):
         if "fileValidityNew" in r.url and r.method == "POST":
