@@ -1,6 +1,7 @@
 import json, time, os, base64, gspread
 from datetime import datetime
 from playwright.sync_api import sync_playwright
+from playwright_stealth import stealth_sync
 from google.oauth2.service_account import Credentials
 
 GOOGLE_SHEET_ID = os.environ["GOOGLE_SHEET_ID"]
@@ -42,16 +43,23 @@ def get_captcha_token(playwright_instance):
     Also try submitting a dummy search so the token is captured from the network request."""
     print("  Launching browser to capture CAPTCHA token...")
     captured = {}
-    browser = playwright_instance.chromium.launch(headless=True, args=[
-        "--no-sandbox", "--disable-setuid-sandbox",
-        "--disable-blink-features=AutomationControlled",
-        "--disable-dev-shm-usage",
-    ])
+    browser = playwright_instance.chromium.launch(
+        headless=False,  # must be non-headless so Cloudflare Turnstile auto-solves
+        args=[
+            "--no-sandbox", "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-blink-features=AutomationControlled",
+            "--window-size=1366,768",
+        ]
+    )
     ctx = browser.new_context(
-        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
-        viewport={"width": 1366, "height": 768}
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        viewport={"width": 1366, "height": 768},
+        locale="en-US",
+        timezone_id="Asia/Dubai",
     )
     page = ctx.new_page()
+    stealth_sync(page)  # patch navigator.webdriver, Chrome runtime, plugins, etc.
 
     def on_req(r):
         if "fileValidityNew" in r.url and r.method == "POST":
@@ -67,10 +75,11 @@ def get_captcha_token(playwright_instance):
     try:
         page.goto(ICP_URL, wait_until="domcontentloaded", timeout=30000)
         page.wait_for_selector("input[type='radio']", timeout=20000)
+        time.sleep(3)  # let page fully render before polling
 
-        # Poll for Turnstile auto-solve (up to 30 seconds)
+        # Poll for Turnstile auto-solve (up to 60 seconds)
         print("  Waiting for Turnstile to auto-solve...")
-        for tick in range(30):
+        for tick in range(60):
             token = page.evaluate("""
                 () => {
                     const inputs = document.querySelectorAll('input[name="cf-turnstile-response"], textarea[name="cf-turnstile-response"]');

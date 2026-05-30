@@ -23,7 +23,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install playwright requests gspread google-auth
+          pip install playwright requests gspread google-auth playwright-stealth
           python -m playwright install chromium
           python -m playwright install-deps chromium
           sudo apt-get install -y xvfb
