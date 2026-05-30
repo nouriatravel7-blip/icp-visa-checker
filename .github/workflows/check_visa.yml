@@ -4,37 +4,32 @@ on:
   schedule:
     - cron: '0 4 * * *'
   workflow_dispatch:
+    inputs:
+      max_employees:
+        description: 'Max employees to check (0 = all). Use 5 for a dry-run test.'
+        required: false
+        default: '0'
 
 jobs:
   check-visa:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 60
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: claude/focused-fermat-cUcVE
+          ref: claude/hopeful-cannon-7Oxzr
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: |
           pip install playwright requests gspread google-auth
           python -m playwright install chromium
           python -m playwright install-deps chromium
-          sudo apt-get install -y xvfb
 
       - name: Run visa check
         env:
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
-          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-          DISPLAY: ':99'
           PYTHONUNBUFFERED: '1'
-        run: |
-          Xvfb :99 -screen 0 1366x768x24 &
-          sleep 2
-          python -u scripts/check_visa.py
+          MAX_TEST_EMPLOYEES: ${{ github.event.inputs.max_employees || '0' }}
+        run: python -u scripts/check_visa.py
