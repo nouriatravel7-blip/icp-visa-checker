@@ -60,12 +60,11 @@ def get_captcha_token(playwright_instance):
     print("  Launching browser to capture CAPTCHA token...")
     captured = {}
     browser = playwright_instance.chromium.launch(
-        headless=False,  # must be non-headless so Cloudflare Turnstile auto-solves
+        headless=True,
         args=[
             "--no-sandbox", "--disable-setuid-sandbox",
             "--disable-dev-shm-usage",
             "--disable-blink-features=AutomationControlled",
-            "--window-size=1366,768",
         ]
     )
     ctx = browser.new_context(
