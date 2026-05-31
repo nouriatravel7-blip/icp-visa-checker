@@ -138,6 +138,8 @@ def classify(status, expire):
             e = datetime(int(p[0]),int(p[1]),int(p[2])) if len(p[0])==4 else datetime(int(p[2]),int(p[1]),int(p[0]))
             days = (e - datetime.now()).days
         except: pass
+    # USED status — always OK regardless of dates
+    if "USED" in s: return "🟢 OK", days
     # Canceled/rejected/converted — always critical regardless of dates
     if any(x in s for x in ["CANCEL","OVERSTAY","REJECTED","ABSCONDING","CONVERTED"]): return "🔴 CRITICAL", days
     # Days-based classification
