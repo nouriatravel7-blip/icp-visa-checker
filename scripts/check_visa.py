@@ -34,12 +34,10 @@ def check_via_browser(page, emp):
     captured = {}
 
     def on_response(r):
-        if r.request.method == "POST":
-            print(f"  POST response: {r.url[:80]} status={r.status}")
         if "fileValidityNew" in r.url and r.request.method == "POST":
             try:
                 captured["data"] = r.json()
-                print(f"  ✓ API response captured: {str(captured['data'])[:200]}")
+                print(f"  ✓ API FULL: {json.dumps(captured['data'])}")
             except Exception as e:
                 print(f"  ✗ Failed to parse response: {e}")
 
@@ -169,37 +167,10 @@ def check_via_browser(page, emp):
                     break
             except: pass
 
-        # Wait up to 15s for API response, then scrape page
+        # Wait up to 15s for API response
         for _ in range(30):
             if captured.get("data"): break
             time.sleep(0.5)
-
-        time.sleep(2)  # Let page render results
-
-        # Scrape full page text and extract values with regex
-        import re
-        body_text = page.inner_text("body")
-        print(f"  Page snippet: {body_text[body_text.find('File Status'):body_text.find('File Status')+200]}")
-
-        def extract(pattern, text):
-            m = re.search(pattern, text)
-            return m.group(1).strip() if m else ""
-
-        file_status = extract(r"File Status\s*:\s*(.+?)(?:\n|File)", body_text)
-        file_no_raw = extract(r"File No[.\s]*:\s*(.+?)(?:\n|Emirate)", body_text)
-        file_iss    = extract(r"File Issuance Date\s*:\s*(.+?)(?:\n|File)", body_text)
-        last_date   = extract(r"Last Date Allowed[^:]*:\s*(.+?)(?:\n|File)", body_text)
-        cancel_date = extract(r"File Cancellation Date\s*:\s*(.+?)(?:\n|$)", body_text)
-
-        print(f"  Scraped — Status:{file_status} | Last:{last_date} | Cancel:{cancel_date}")
-        if file_status:
-            captured["data"] = {
-                "fileStatus":                       file_status,
-                "fileNo":                           file_no_raw,
-                "fileIssuanceDate":                 file_iss,
-                "lastDateAllowedToEnterTheCountry": last_date,
-                "fileCancellationDate":             cancel_date,
-            }
 
     except Exception as e:
         print(f"  Browser error: {e}")
