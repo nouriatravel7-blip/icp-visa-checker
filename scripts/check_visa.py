@@ -72,28 +72,49 @@ def check_via_browser(page, emp):
         uid_input.fill(uid)
         time.sleep(0.3)
 
-        # Select nationality from dropdown
+        # Select nationality — Angular custom dropdown
         if nationality:
             try:
-                page.locator("select").first.select_option(label=nationality)
+                # Click the dropdown to open it
+                nat_dropdown = page.locator(".ui-select-container, select, [ng-model*='nation'], [ng-model*='Nation']").first
+                nat_dropdown.click()
+                time.sleep(0.5)
+                # Type in the search box that appears
+                search_box = page.locator(".ui-select-search, input[placeholder*='earch'], input[placeholder*='elect']").first
+                search_box.fill(nationality)
+                time.sleep(0.8)
+                # Click matching option
+                page.locator(f".ui-select-choices-row:has-text('{nationality}'), li:has-text('{nationality}'), option:has-text('{nationality}')").first.click()
                 time.sleep(0.3)
             except:
                 try:
-                    # Try typing in a searchable dropdown
-                    nat_input = page.locator("input[placeholder*='Select'], input[placeholder*='Nation']").first
-                    nat_input.fill(nationality)
-                    time.sleep(0.5)
-                    page.locator(f"text={nationality}").first.click()
-                    time.sleep(0.3)
+                    # Fallback: standard select
+                    page.locator("select").first.select_option(label=nationality)
                 except: pass
 
-        # Fill Date of Birth
+        # Fill Date of Birth (format: dd/MM/yyyy)
         if dob:
             try:
-                dob_input = page.locator("input[placeholder*='dd'], input[placeholder*='DD'], input[placeholder*='Date']").first
+                dob_input = page.locator("input[placeholder*='Date'], input[placeholder*='date'], input[placeholder*='dd/']").first
+                dob_input.click()
                 dob_input.fill(dob)
+                page.keyboard.press("Tab")
                 time.sleep(0.3)
             except: pass
+
+        time.sleep(1)
+
+        # Wait for Cloudflare to complete verification (up to 15s)
+        print("  Waiting for Cloudflare verification...")
+        for _ in range(30):
+            fail_text = page.locator("text=Verification failed").count()
+            success = page.locator("text=Verification successful, input[name='cf-turnstile-response'][value!=''], textarea[name='g-recaptcha-response']").count()
+            if success > 0:
+                print("  ✓ Cloudflare verified!")
+                break
+            if fail_text == 0:
+                break
+            time.sleep(0.5)
 
         time.sleep(1)
 
