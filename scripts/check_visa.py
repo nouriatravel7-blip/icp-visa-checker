@@ -63,15 +63,11 @@ def check_via_browser(page, emp):
         page.wait_for_selector("input[type='radio']", timeout=20000)
         time.sleep(2)
 
-        # Select the Type: Visa or Residency
+        # Select the Type: Visa (2) or Residency (1)
         try:
-            page.locator(f"label:has-text('{type_label}')").nth(0).click()
+            page.locator(f"input[name='selectModule'][value='{file_module}']").click()
             time.sleep(0.4)
-        except:
-            try:
-                page.get_by_text(type_label, exact=True).first.click()
-                time.sleep(0.4)
-            except: pass
+        except: pass
 
         # Select "Emirate Unified Number" radio button
         for lbl in page.locator("label").all():
