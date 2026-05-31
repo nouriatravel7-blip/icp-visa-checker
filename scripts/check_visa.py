@@ -61,7 +61,19 @@ def check_via_browser(page, emp):
 
         page.goto(ICP_URL, wait_until="domcontentloaded", timeout=45000)
         page.wait_for_selector("input[type='radio']", timeout=20000)
-        time.sleep(2)
+
+        # Wait for Cloudflare to complete BEFORE touching the form
+        print("  Waiting for Cloudflare verification...")
+        for _ in range(40):
+            if page.locator("text=Verification failed").count() == 0:
+                print("  ✓ Cloudflare passed!")
+                break
+            time.sleep(0.5)
+        else:
+            print("  ✗ Cloudflare verification failed — skipping")
+            return None
+
+        time.sleep(1)
 
         # Select the Type: Visa (2) or Residency (1)
         try:
@@ -84,20 +96,16 @@ def check_via_browser(page, emp):
         # Select nationality — Angular custom dropdown
         if nationality:
             try:
-                # Click the dropdown to open it
                 nat_dropdown = page.locator(".ui-select-container, select, [ng-model*='nation'], [ng-model*='Nation']").first
                 nat_dropdown.click()
                 time.sleep(0.5)
-                # Type in the search box that appears
                 search_box = page.locator(".ui-select-search, input[placeholder*='earch'], input[placeholder*='elect']").first
                 search_box.fill(nationality)
                 time.sleep(0.8)
-                # Click matching option
                 page.locator(f".ui-select-choices-row:has-text('{nationality}'), li:has-text('{nationality}'), option:has-text('{nationality}')").first.click()
                 time.sleep(0.3)
             except:
                 try:
-                    # Fallback: standard select
                     page.locator("select").first.select_option(label=nationality)
                 except: pass
 
@@ -110,19 +118,6 @@ def check_via_browser(page, emp):
                 page.keyboard.press("Tab")
                 time.sleep(0.3)
             except: pass
-
-        time.sleep(1)
-
-        # Wait for Cloudflare to pass (up to 20s)
-        print("  Waiting for Cloudflare verification...")
-        for _ in range(40):
-            if page.locator("text=Verification failed").count() == 0:
-                print("  ✓ Cloudflare passed!")
-                break
-            time.sleep(0.5)
-        else:
-            print("  ✗ Cloudflare verification failed — skipping")
-            return None
 
         time.sleep(1)
 
