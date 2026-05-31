@@ -297,13 +297,17 @@ def main():
             if not raw:
                 print("  ✗ No response received, skipping"); continue
 
-            print(f"  ICP Response: {str(raw)[:250]}")
+            print(f"  ICP Response FULL: {json.dumps(raw)[:800]}")
 
-            d = raw.get("data") or raw.get("result") or raw or {}
-            status   = (d.get("fileStatus") or d.get("status") or "UNKNOWN").upper()
+            d = (raw.get("fileValidity") or raw.get("data") or
+                 raw.get("result") or raw or {})
+            status   = (d.get("fileStatus") or d.get("status") or
+                        d.get("serviceStatus", {}).get("description") or "UNKNOWN").upper()
             expire   = (d.get("lastDateAllowedToEnterTheCountry") or
-                        d.get("fileExpireDate") or d.get("expireDate") or "")
-            file_no  = d.get("fileNo") or d.get("fileNoFormatted") or ""
+                        d.get("fileExpireDate") or d.get("expireDate") or
+                        d.get("lastDateAllowed") or "")
+            file_no  = (d.get("fileNo") or d.get("fileNoFormatted") or
+                        f"{d.get('fileDepartmentCode','')}/{d.get('fileServiceYear','')}/{d.get('fileServiceCode','')}/{d.get('fileSequenceNumber','')}" or "")
             file_iss = d.get("fileIssuanceDate") or d.get("issuanceDate") or ""
             file_can = d.get("fileCancellationDate") or d.get("cancellationDate") or ""
             alert, days = classify(status, expire)
