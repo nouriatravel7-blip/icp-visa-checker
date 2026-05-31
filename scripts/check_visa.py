@@ -124,13 +124,6 @@ def check_via_browser(page, emp):
 
     return captured.get("data")
 
-    except Exception as e:
-        print(f"  Browser error: {e}")
-    finally:
-        page.remove_listener("response", on_response)
-
-    return captured.get("data")
-
 def classify(status, expire):
     s = (status or "").upper()
     days = None
