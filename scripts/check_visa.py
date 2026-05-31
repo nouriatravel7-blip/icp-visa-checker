@@ -1,7 +1,6 @@
 import json, time, os, base64, gspread
 from datetime import datetime
-from playwright.sync_api import sync_playwright
-from playwright_stealth import Stealth
+from patchright.sync_api import sync_playwright
 from google.oauth2.service_account import Credentials
 
 GOOGLE_SHEET_ID = os.environ["GOOGLE_SHEET_ID"]
@@ -191,7 +190,6 @@ def main():
             viewport={"width":1366,"height":768}
         )
         page = ctx.new_page()
-        Stealth().apply_stealth_sync(page)
 
         for i, emp in enumerate(rows):
             name = (emp.get("VISA  NAME ") or emp.get("Customer Name") or emp.get("Name") or f"Row {i+2}")
