@@ -66,105 +66,50 @@ def check_via_browser(page, emp):
             page.reload(wait_until="domcontentloaded", timeout=45000)
         page.wait_for_selector("input[type='radio']", timeout=20000)
 
-        # Wait for Cloudflare widget to appear first
-        print("  Waiting for Cloudflare widget to load...")
-        try:
-            page.wait_for_selector("iframe[src*='cloudflare'], iframe[src*='recaptcha'], .g-recaptcha, #cf-turnstile", timeout=15000)
-        except:
-            pass
-        time.sleep(3)  # Give the widget time to run its checks
-
-        # Now check if it passed or failed
-        print("  Checking Cloudflare result...")
-        for _ in range(40):
-            failed = page.locator("text=Verification failed").count()
-            if failed == 0:
-                print("  ✓ Cloudflare passed!")
-                break
-            print(f"  Still verifying...")
-            time.sleep(0.5)
-        else:
-            print("  ✗ Cloudflare verification failed — skipping")
-            return None
-
-        time.sleep(1)
-
         # Select the Type: Visa (2) or Residency (1)
         try:
             page.locator(f"input[name='selectModule'][value='{file_module}']").click()
-            time.sleep(0.4)
+            time.sleep(0.2)
         except: pass
 
         # Select "Emirate Unified Number" radio button
         for lbl in page.locator("label").all():
             try:
                 if "emirate unified" in (lbl.inner_text() or "").lower():
-                    lbl.click(); time.sleep(0.5); break
+                    lbl.click(); time.sleep(0.2); break
             except: pass
 
         # Fill UID
-        uid_input = page.locator("input[type='text']:visible").first
-        uid_input.fill(uid)
-        time.sleep(0.3)
+        page.locator("input[type='text']:visible").first.fill(uid)
+        time.sleep(0.2)
 
-        # Select nationality — Angular custom dropdown
+        # Select nationality
         if nationality:
             try:
-                nat_dropdown = page.locator(".ui-select-container, select, [ng-model*='nation'], [ng-model*='Nation']").first
-                nat_dropdown.click()
-                time.sleep(0.5)
-                search_box = page.locator(".ui-select-search, input[placeholder*='earch'], input[placeholder*='elect']").first
-                search_box.fill(nationality)
-                time.sleep(0.8)
-                page.locator(f".ui-select-choices-row:has-text('{nationality}'), li:has-text('{nationality}'), option:has-text('{nationality}')").first.click()
+                page.locator(".ui-select-container, select, [ng-model*='nation'], [ng-model*='Nation']").first.click()
                 time.sleep(0.3)
+                page.locator(".ui-select-search, input[placeholder*='earch'], input[placeholder*='elect']").first.fill(nationality)
+                time.sleep(0.5)
+                page.locator(f".ui-select-choices-row:has-text('{nationality}'), li:has-text('{nationality}')").first.click()
+                time.sleep(0.2)
             except:
-                try:
-                    page.locator("select").first.select_option(label=nationality)
+                try: page.locator("select").first.select_option(label=nationality)
                 except: pass
 
-        # Fill Date of Birth (format: dd/MM/yyyy)
+        # Fill DOB
         if dob:
             try:
                 dob_input = page.locator("input[placeholder*='Date'], input[placeholder*='date'], input[placeholder*='dd/']").first
-                dob_input.click()
                 dob_input.fill(dob)
                 page.keyboard.press("Tab")
-                time.sleep(0.3)
+                time.sleep(0.2)
             except: pass
 
-        time.sleep(1)
-
-        # Check reCAPTCHA token value before clicking
-        token_val = page.evaluate("""()=>{
-            const selectors = ['textarea[name="g-recaptcha-response"]','input[name="cf-turnstile-response"]'];
-            for(const s of selectors){
-                const el = document.querySelector(s);
-                if(el) return el.value || '(empty)';
-            }
-            return 'not found';
-        }""")
-        print(f"  CAPTCHA token before search: {token_val[:60]}")
-
-        # Click Search button
+        # Click Search
         for btn in page.locator("button:visible").all():
             try:
-                txt = (btn.inner_text() or "").strip().lower()
-                if any(w in txt for w in ["search", "check", "submit"]):
-                    btn.click()
-                    print("  Clicked Search button")
-                    break
-            except: pass
-
-        time.sleep(3)
-
-        # Check for any error message shown after clicking Search
-        for err_sel in ["text=reCAPTCHA", "text=CAPTCHA", "text=Verification", ".alert", ".error", "[class*='error']", "[class*='alert']"]:
-            try:
-                err = page.locator(err_sel).first.inner_text()
-                if err.strip():
-                    print(f"  Page message: {err.strip()[:100]}")
-                    break
+                if any(w in (btn.inner_text() or "").lower() for w in ["search", "check", "submit"]):
+                    btn.click(); break
             except: pass
 
         # Wait up to 15s for API response
@@ -278,14 +223,16 @@ def main():
             }
 
             row_num = i + 2
+            batch = []
             for col_name, val in col_map.items():
                 if col_name in headers:
-                    sheet.update_cell(row_num, headers.index(col_name) + 1, val)
-                else:
-                    print(f"  ⚠ Column '{col_name}' not in sheet — skipping")
+                    col_idx = headers.index(col_name) + 1
+                    col_letter = chr(64 + col_idx) if col_idx <= 26 else f"A{chr(64 + col_idx - 26)}"
+                    batch.append({"range": f"{col_letter}{row_num}", "values": [[str(val)]]})
+            if batch:
+                sheet.batch_update(batch)
 
             results.append({"name": name, "status": status, "alert": alert})
-            time.sleep(1)
 
         browser.close()
     chrome_proc.terminate()
