@@ -169,48 +169,44 @@ def check_via_browser(page, emp):
                     break
             except: pass
 
-        # Wait for results to appear on the page
+        # Wait for results section to appear
         try:
             page.wait_for_selector("text=File Status", timeout=15000)
+            time.sleep(1)
         except:
             pass
 
-        # Scrape results directly from the page
-        result = page.evaluate("""() => {
-            function getVal(label) {
-                const els = document.querySelectorAll('span, td, div, p, label');
-                for (const el of els) {
-                    if (el.innerText && el.innerText.trim().startsWith(label)) {
-                        // Try next sibling or parent's next child
-                        const text = el.innerText.trim();
-                        const colon = text.indexOf(':');
-                        if (colon !== -1 && text.length > colon + 1) {
-                            return text.substring(colon + 1).trim();
-                        }
-                        // Try sibling
-                        const sib = el.nextElementSibling;
-                        if (sib) return sib.innerText.trim();
-                    }
-                }
-                return '';
+        # Scrape results directly from the page labels
+        def scrape_field(label):
+            try:
+                els = page.locator(f"text={label}").all()
+                for el in els:
+                    txt = (el.inner_text() or "").strip()
+                    if ":" in txt:
+                        return txt.split(":", 1)[1].strip()
+                    sib = el.locator("xpath=following-sibling::*[1]")
+                    if sib.count() > 0:
+                        return sib.first.inner_text().strip()
+            except:
+                pass
+            return ""
+
+        file_status = scrape_field("File Status")
+        file_no     = scrape_field("File No")
+        file_iss    = scrape_field("File Issuance Date")
+        last_date   = scrape_field("Last Date Allowed to Enter the Country")
+        cancel_date = scrape_field("File Cancellation Date")
+
+        print(f"  Scraped — Status: {file_status} | Last Date: {last_date}")
+
+        if file_status:
+            captured["data"] = {
+                "fileStatus":                       file_status,
+                "fileNo":                           file_no,
+                "fileIssuanceDate":                 file_iss,
+                "lastDateAllowedToEnterTheCountry": last_date,
+                "fileCancellationDate":             cancel_date,
             }
-            return {
-                fileStatus:  getVal('File Status'),
-                fileNo:      getVal('File No'),
-                fileIssuanceDate:  getVal('File Issuance Date'),
-                lastDate:    getVal('Last Date Allowed'),
-                cancelDate:  getVal('File Cancellation Date'),
-            };
-        }""")
-        print(f"  Scraped: {result}")
-        if result.get("fileStatus"):
-            captured["data"] = {"data": {
-                "fileStatus":                       result.get("fileStatus",""),
-                "fileNo":                           result.get("fileNo",""),
-                "fileIssuanceDate":                 result.get("fileIssuanceDate",""),
-                "lastDateAllowedToEnterTheCountry": result.get("lastDate",""),
-                "fileCancellationDate":             result.get("cancelDate",""),
-            }}
 
     except Exception as e:
         print(f"  Browser error: {e}")
@@ -297,19 +293,11 @@ def main():
             if not raw:
                 print("  ✗ No response received, skipping"); continue
 
-            print(f"  ICP Response FULL: {json.dumps(raw)[:800]}")
-
-            d = (raw.get("fileValidity") or raw.get("data") or
-                 raw.get("result") or raw or {})
-            status   = (d.get("fileStatus") or d.get("status") or
-                        d.get("serviceStatus", {}).get("description") or "UNKNOWN").upper()
-            expire   = (d.get("lastDateAllowedToEnterTheCountry") or
-                        d.get("fileExpireDate") or d.get("expireDate") or
-                        d.get("lastDateAllowed") or "")
-            file_no  = (d.get("fileNo") or d.get("fileNoFormatted") or
-                        f"{d.get('fileDepartmentCode','')}/{d.get('fileServiceYear','')}/{d.get('fileServiceCode','')}/{d.get('fileSequenceNumber','')}" or "")
-            file_iss = d.get("fileIssuanceDate") or d.get("issuanceDate") or ""
-            file_can = d.get("fileCancellationDate") or d.get("cancellationDate") or ""
+            status   = (raw.get("fileStatus") or "UNKNOWN").upper()
+            expire   = raw.get("lastDateAllowedToEnterTheCountry") or ""
+            file_no  = raw.get("fileNo") or ""
+            file_iss = raw.get("fileIssuanceDate") or ""
+            file_can = raw.get("fileCancellationDate") or ""
             alert, days = classify(status, expire)
 
             print(f"  ✓ Status: {status} | Expires: {expire} | Alert: {alert}")
