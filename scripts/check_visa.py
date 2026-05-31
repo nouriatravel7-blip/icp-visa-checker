@@ -56,9 +56,19 @@ def check_via_browser(page, emp):
                 # yyyy/MM/dd → dd/MM/yyyy
                 dob = f"{parts[2]}/{parts[1]}/{parts[0]}"
 
+        file_module = int(emp.get("fileModuleId") or 2)
+        type_label = "Visa" if file_module == 2 else "Residency"
+
         page.goto(ICP_URL, wait_until="domcontentloaded", timeout=45000)
         page.wait_for_selector("input[type='radio']", timeout=20000)
         time.sleep(2)
+
+        # Select the Type: Visa or Residency
+        for lbl in page.locator("label").all():
+            try:
+                if (lbl.inner_text() or "").strip() == type_label:
+                    lbl.click(); time.sleep(0.4); break
+            except: pass
 
         # Select "Emirate Unified Number" radio button
         for lbl in page.locator("label").all():
