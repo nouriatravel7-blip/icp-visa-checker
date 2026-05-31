@@ -34,11 +34,14 @@ def check_via_browser(page, emp):
     captured = {}
 
     def on_response(r):
+        if r.request.method == "POST":
+            print(f"  POST response: {r.url[:80]} status={r.status}")
         if "fileValidityNew" in r.url and r.request.method == "POST":
             try:
                 captured["data"] = r.json()
-                print("  ✓ API response captured!")
-            except: pass
+                print(f"  ✓ API response captured: {str(captured['data'])[:200]}")
+            except Exception as e:
+                print(f"  ✗ Failed to parse response: {e}")
 
     page.on("response", on_response)
 
@@ -62,12 +65,22 @@ def check_via_browser(page, emp):
         page.goto(ICP_URL, wait_until="domcontentloaded", timeout=45000)
         page.wait_for_selector("input[type='radio']", timeout=20000)
 
-        # Wait for Cloudflare to complete BEFORE touching the form
-        print("  Waiting for Cloudflare verification...")
+        # Wait for Cloudflare widget to appear first
+        print("  Waiting for Cloudflare widget to load...")
+        try:
+            page.wait_for_selector("iframe[src*='cloudflare'], iframe[src*='recaptcha'], .g-recaptcha, #cf-turnstile", timeout=15000)
+        except:
+            pass
+        time.sleep(3)  # Give the widget time to run its checks
+
+        # Now check if it passed or failed
+        print("  Checking Cloudflare result...")
         for _ in range(40):
-            if page.locator("text=Verification failed").count() == 0:
+            failed = page.locator("text=Verification failed").count()
+            if failed == 0:
                 print("  ✓ Cloudflare passed!")
                 break
+            print(f"  Still verifying...")
             time.sleep(0.5)
         else:
             print("  ✗ Cloudflare verification failed — skipping")
