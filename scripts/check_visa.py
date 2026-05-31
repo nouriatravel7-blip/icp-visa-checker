@@ -169,10 +169,48 @@ def check_via_browser(page, emp):
                     break
             except: pass
 
-        # Wait up to 15s for API response
-        for _ in range(30):
-            if captured.get("data"): break
-            time.sleep(0.5)
+        # Wait for results to appear on the page
+        try:
+            page.wait_for_selector("text=File Status", timeout=15000)
+        except:
+            pass
+
+        # Scrape results directly from the page
+        result = page.evaluate("""() => {
+            function getVal(label) {
+                const els = document.querySelectorAll('span, td, div, p, label');
+                for (const el of els) {
+                    if (el.innerText && el.innerText.trim().startsWith(label)) {
+                        // Try next sibling or parent's next child
+                        const text = el.innerText.trim();
+                        const colon = text.indexOf(':');
+                        if (colon !== -1 && text.length > colon + 1) {
+                            return text.substring(colon + 1).trim();
+                        }
+                        // Try sibling
+                        const sib = el.nextElementSibling;
+                        if (sib) return sib.innerText.trim();
+                    }
+                }
+                return '';
+            }
+            return {
+                fileStatus:  getVal('File Status'),
+                fileNo:      getVal('File No'),
+                fileIssuanceDate:  getVal('File Issuance Date'),
+                lastDate:    getVal('Last Date Allowed'),
+                cancelDate:  getVal('File Cancellation Date'),
+            };
+        }""")
+        print(f"  Scraped: {result}")
+        if result.get("fileStatus"):
+            captured["data"] = {"data": {
+                "fileStatus":                       result.get("fileStatus",""),
+                "fileNo":                           result.get("fileNo",""),
+                "fileIssuanceDate":                 result.get("fileIssuanceDate",""),
+                "lastDateAllowedToEnterTheCountry": result.get("lastDate",""),
+                "fileCancellationDate":             result.get("cancelDate",""),
+            }}
 
     except Exception as e:
         print(f"  Browser error: {e}")
