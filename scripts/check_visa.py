@@ -32,7 +32,7 @@ def get_captcha_token():
     print("  Getting Cloudflare token via browser...")
     captured = {}
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, args=[
+        browser = p.chromium.launch(headless=False, channel="chrome", args=[
             "--no-sandbox","--disable-setuid-sandbox",
             "--disable-blink-features=AutomationControlled"
         ])
