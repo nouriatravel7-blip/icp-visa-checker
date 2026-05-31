@@ -33,16 +33,15 @@ def check_via_browser(page, emp):
     """Fill the ICP form with real employee data and capture the API response."""
     captured = {}
 
-    def handle_route(route, request):
-        response = route.fetch()
-        try:
-            captured["data"] = response.json()
-            print(f"  ✓ API captured")
-        except Exception as e:
-            print(f"  ✗ Parse error: {e}")
-        route.fulfill(response=response)
+    def on_response(r):
+        if "fileValidityNew" in r.url and r.request.method == "POST":
+            try:
+                captured["data"] = r.json()
+                print(f"  ✓ API FULL: {json.dumps(captured['data'])}")
+            except Exception as e:
+                print(f"  ✗ Failed to parse response: {e}")
 
-    page.route("**/fileValidityNew", handle_route)
+    page.on("response", on_response)
 
     try:
         uid = str(emp.get("Emirate Unified Number") or "").strip()
@@ -120,7 +119,7 @@ def check_via_browser(page, emp):
     except Exception as e:
         print(f"  Browser error: {e}")
     finally:
-        page.unroute("**/fileValidityNew", handle_route)
+        page.remove_listener("response", on_response)
 
     return captured.get("data")
 
