@@ -29,30 +29,8 @@ def connect_sheet():
     print("  Connected to Google Sheets!")
     return gc.open_by_key(GOOGLE_SHEET_ID).sheet1
 
-def check_via_browser(page, emp):
-    """Fill the ICP form with real employee data and capture the API response."""
-    captured = {}
-
-    def handle_route(route, request):
-        if "fileValidityNew" in request.url:
-            try:
-                response = route.fetch()
-                captured["data"] = response.json()
-                print(f"  ✓ API FULL: {json.dumps(captured['data'])}")
-            except Exception as e:
-                print(f"  ✗ Parse error: {e}")
-            try:
-                route.continue_()
-            except Exception:
-                pass
-        else:
-            try:
-                route.continue_()
-            except Exception:
-                pass
-
-    page.route("**/*fileValidityNew*", handle_route)
-
+def fill_form(page, emp, captured):
+    """Fill the ICP form and wait for API response captured by the shared route handler."""
     try:
         uid = str(emp.get("Emirate Unified Number") or "").strip()
         nationality = NATIONALITY_MAP.get(str(emp.get("Nationality", "")).upper(), "")
@@ -75,13 +53,13 @@ def check_via_browser(page, emp):
         page.wait_for_selector("input[type='radio']", timeout=20000)
         time.sleep(3)  # Wait for Cloudflare to auto-verify
 
-        # Select the Type: Visa (2) or Residency (1)
+        # Select Visa (2) or Residency (1)
         try:
             page.locator(f"input[name='selectModule'][value='{file_module}']").click()
             time.sleep(0.2)
         except: pass
 
-        # Select "Emirate Unified Number" radio button
+        # Select "Emirate Unified Number" radio
         for lbl in page.locator("label").all():
             try:
                 if "emirate unified" in (lbl.inner_text() or "").lower():
@@ -128,13 +106,6 @@ def check_via_browser(page, emp):
 
     except Exception as e:
         print(f"  Browser error: {e}")
-    finally:
-        try:
-            page.unroute("**/*fileValidityNew*", handle_route)
-        except Exception:
-            pass
-
-    return captured.get("data")
 
 def classify(status, expire):
     s = (status or "").upper()
@@ -204,6 +175,21 @@ def main():
             page = ctx.new_page()
         print(f"  Browser ready. Starting checks...")
 
+        # Register route handler ONCE — shared across all employees
+        captured = {}
+
+        def handle_route(route, request):
+            if "fileValidityNew" in request.url:
+                try:
+                    response = route.fetch()
+                    captured["data"] = response.json()
+                    print(f"  ✓ API FULL: {json.dumps(captured['data'])}")
+                except Exception as e:
+                    print(f"  ✗ Route fetch error: {e}")
+            # Don't call continue/fulfill — route.fetch() already handled it
+
+        page.route("**/*fileValidityNew*", handle_route)
+
         for i, emp in enumerate(rows):
             name = (emp.get("VISA  NAME ") or emp.get("Customer Name") or emp.get("Name") or f"Row {i+2}")
             uid  = str(emp.get("Emirate Unified Number") or "").strip()
@@ -213,7 +199,9 @@ def main():
 
             print(f"\n[{i+1}/{len(rows)}] Checking: {name} — UID: {uid}")
 
-            raw = check_via_browser(page, emp)
+            captured.clear()
+            fill_form(page, emp, captured)
+            raw = captured.get("data")
             if not raw:
                 print("  ✗ No response received, skipping"); continue
 
