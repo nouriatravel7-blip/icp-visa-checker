@@ -28,7 +28,7 @@ def connect_sheet():
     print("  Connected to Google Sheets!")
     return gc.open_by_key(GOOGLE_SHEET_ID).sheet1
 
-def fill_form(page, emp, captured):
+def fill_form(page, emp, captured, first_load=False):
     """Fill the ICP form for one employee. Captured dict is populated by the route handler."""
     try:
         uid = str(emp.get("Emirate Unified Number") or "").strip()
@@ -44,56 +44,76 @@ def fill_form(page, emp, captured):
         raw_module = str(emp.get("fileModuleId") or "2").strip().lower()
         file_module = 1 if raw_module in ("1", "residency") else 2
 
-        if ICP_URL not in (page.url or ""):
+        if first_load:
+            # First employee: full page load + Cloudflare wait
             page.goto(ICP_URL, wait_until="domcontentloaded", timeout=45000)
+            page.wait_for_selector("input[type='radio']", timeout=20000)
+
+            print("  Waiting for Cloudflare...")
+            try:
+                page.wait_for_selector("iframe[src*='cloudflare'], iframe[src*='recaptcha'], .g-recaptcha, #cf-turnstile", timeout=15000)
+            except:
+                pass
+            time.sleep(3)
+
+            for _ in range(40):
+                if page.locator("text=Verification failed").count() == 0:
+                    print("  ✓ Cloudflare passed!")
+                    break
+                time.sleep(0.5)
+            else:
+                print("  ✗ Cloudflare failed — skipping")
+                return
+
+            time.sleep(1)
         else:
-            page.reload(wait_until="domcontentloaded", timeout=45000)
-        page.wait_for_selector("input[type='radio']", timeout=20000)
-
-        print("  Waiting for Cloudflare...")
-        try:
-            page.wait_for_selector("iframe[src*='cloudflare'], iframe[src*='recaptcha'], .g-recaptcha, #cf-turnstile", timeout=15000)
-        except:
-            pass
-        time.sleep(3)
-
-        for _ in range(40):
-            if page.locator("text=Verification failed").count() == 0:
-                print("  ✓ Cloudflare passed!")
-                break
+            # Subsequent employees: scroll to top and reset form without reloading
+            try:
+                page.evaluate("window.scrollTo(0, 0)")
+                # Click any "New Search" or "Back" button if present
+                for btn in page.locator("button:visible").all():
+                    try:
+                        txt = (btn.inner_text() or "").lower()
+                        if any(w in txt for w in ["new", "back", "reset", "clear", "another"]):
+                            btn.click()
+                            time.sleep(0.5)
+                            break
+                    except: pass
+            except: pass
             time.sleep(0.5)
-        else:
-            print("  ✗ Cloudflare failed — skipping")
-            return
-
-        time.sleep(1)
 
         # Select Visa (2) or Residency (1)
         try:
             page.locator(f"input[name='selectModule'][value='{file_module}']").click()
-            time.sleep(0.4)
+            time.sleep(0.3)
         except: pass
 
         # Select "Emirate Unified Number" radio
         for lbl in page.locator("label").all():
             try:
                 if "emirate unified" in (lbl.inner_text() or "").lower():
-                    lbl.click(); time.sleep(0.5); break
+                    lbl.click(); time.sleep(0.3); break
             except: pass
 
         # Fill UID
+        page.locator("input[type='text']:visible").first.triple_click()
         page.locator("input[type='text']:visible").first.fill(uid)
-        time.sleep(0.3)
+        time.sleep(0.2)
 
-        # Select nationality
+        # Clear and select nationality
         if nationality:
             try:
+                # Try to clear existing selection first (click X button if present)
+                try:
+                    page.locator(".ui-select-match-item .close, .select2-selection__clear").first.click()
+                    time.sleep(0.2)
+                except: pass
                 page.locator(".ui-select-container, select, [ng-model*='nation'], [ng-model*='Nation']").first.click()
-                time.sleep(0.5)
+                time.sleep(0.4)
                 page.locator(".ui-select-search, input[placeholder*='earch'], input[placeholder*='elect']").first.fill(nationality)
-                time.sleep(0.8)
+                time.sleep(0.6)
                 page.locator(f".ui-select-choices-row:has-text('{nationality}'), li:has-text('{nationality}'), option:has-text('{nationality}')").first.click()
-                time.sleep(0.3)
+                time.sleep(0.2)
             except:
                 try: page.locator("select").first.select_option(label=nationality)
                 except: pass
@@ -102,13 +122,13 @@ def fill_form(page, emp, captured):
         if dob:
             try:
                 dob_input = page.locator("input[placeholder*='Date'], input[placeholder*='date'], input[placeholder*='dd/']").first
-                dob_input.click()
+                dob_input.triple_click()
                 dob_input.fill(dob)
                 page.keyboard.press("Tab")
-                time.sleep(0.3)
+                time.sleep(0.2)
             except: pass
 
-        time.sleep(1)
+        time.sleep(0.5)
 
         # Click Search
         for btn in page.locator("button:visible").all():
@@ -221,7 +241,7 @@ def main():
             print(f"\n[{i+1}/{len(rows)}] Checking: {name} — UID: {uid}")
 
             captured.clear()
-            fill_form(page, emp, captured)
+            fill_form(page, emp, captured, first_load=(i == 0))
             raw = captured.get("data")
 
             if not raw:
