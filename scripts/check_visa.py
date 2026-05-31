@@ -56,7 +56,8 @@ def check_via_browser(page, emp):
                 # yyyy/MM/dd → dd/MM/yyyy
                 dob = f"{parts[2]}/{parts[1]}/{parts[0]}"
 
-        file_module = int(emp.get("fileModuleId") or 2)
+        raw_module = str(emp.get("fileModuleId") or "2").strip().lower()
+        file_module = 1 if raw_module in ("1", "residency") else 2
         type_label = "Visa" if file_module == 2 else "Residency"
 
         page.goto(ICP_URL, wait_until="domcontentloaded", timeout=45000)
