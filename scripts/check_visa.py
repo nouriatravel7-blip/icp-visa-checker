@@ -68,14 +68,17 @@ def get_token(page):
 
 def refresh_token(page):
     """Ask Turnstile widget to generate a new token (no page reload needed)."""
-    page.evaluate("if (window.turnstile) { window.turnstile.reset(); }")
-    for _ in range(20):
-        tok = get_token(page)
-        if tok:
-            return tok
-        time.sleep(0.3)
+    try:
+        page.evaluate("if (window.turnstile) { window.turnstile.reset(); }")
+        for _ in range(20):
+            tok = get_token(page)
+            if tok:
+                return tok
+            time.sleep(0.3)
+    except Exception:
+        pass
     # Fallback: full page reload
-    print("  Token refresh failed — reloading page...")
+    print("  Token refresh — reloading page...")
     return load_page_and_pass_cloudflare(page)
 
 BATCH_SIZE = 10  # calls fired in parallel via Promise.all
@@ -135,10 +138,10 @@ def classify(status, expire):
             e = datetime(int(p[0]),int(p[1]),int(p[2])) if len(p[0])==4 else datetime(int(p[2]),int(p[1]),int(p[0]))
             days = (e - datetime.now()).days
         except: pass
-    if any(x in s for x in ["CANCEL","OVERSTAY","EXPIRED","REJECTED","ABSCONDING"]): return "🔴 CRITICAL", days
+    if any(x in s for x in ["CANCEL","OVERSTAY","EXPIRED","REJECTED","ABSCONDING","CONVERTED"]): return "🔴 CRITICAL", days
     if days is not None and days < 0: return "🔴 CRITICAL", days
     if days is not None and days <= 30: return "🟡 WARNING", days
-    if "ACTIVE" in s: return "🟢 OK", days
+    if any(x in s for x in ["ACTIVE", "USED", "INSIDE"]): return "🟢 OK", days
     return "⚪ UNKNOWN", days
 
 def main():
@@ -156,6 +159,8 @@ def main():
 
     today = datetime.now().strftime("%d/%m/%Y")
     results = []
+    # Set START_FROM=50 to resume from row 50 after a crash (1-based)
+    start_from = int(os.environ.get("START_FROM", "1")) - 1
 
     chrome_paths = [
         r"C:\Program Files\Google\Chrome\Application\chrome.exe",
@@ -194,7 +199,7 @@ def main():
 
         # Filter employees that need checking
         to_check = []
-        for i, emp in enumerate(rows):
+        for i, emp in enumerate(rows[start_from:], start=start_from):
             uid  = str(emp.get("Emirate Unified Number") or "").strip()
             name = (emp.get("VISA  NAME ") or emp.get("Customer Name") or emp.get("Name") or f"Row {i+2}")
             if not uid:
