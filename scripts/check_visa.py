@@ -169,36 +169,39 @@ def check_via_browser(page, emp):
                     break
             except: pass
 
-        # Wait 3 seconds for results to render
-        time.sleep(3)
+        # Wait up to 15s for API response, then scrape page
+        for _ in range(30):
+            if captured.get("data"): break
+            time.sleep(0.5)
 
-        # Scrape directly via JavaScript
+        time.sleep(2)  # Let page render results
+
+        # Scrape page for human-readable values
         scraped = page.evaluate("""() => {
-            const rows = document.querySelectorAll('span, label, td, p, div');
-            const data = {};
-            const labels = {
-                'File Status': 'fileStatus',
-                'File No': 'fileNo',
-                'File Issuance Date': 'fileIssuanceDate',
-                'Last Date Allowed': 'lastDate',
-                'File Cancellation Date': 'cancelDate'
-            };
-            rows.forEach(el => {
-                const txt = (el.innerText || '').trim();
-                for (const [label, key] of Object.entries(labels)) {
-                    if (txt.startsWith(label) && txt.includes(':')) {
-                        data[key] = txt.split(':').slice(1).join(':').trim();
+            function find(label) {
+                const all = document.querySelectorAll('span, label, td, p, div, li');
+                for (const el of all) {
+                    const t = (el.innerText || '').trim();
+                    if (t.startsWith(label) && t.includes(':')) {
+                        return t.split(':').slice(1).join(':').trim();
                     }
                 }
-            });
-            return data;
+                return '';
+            }
+            return {
+                fileStatus:  find('File Status'),
+                fileNo:      find('File No'),
+                fileIss:     find('File Issuance Date'),
+                lastDate:    find('Last Date Allowed'),
+                cancelDate:  find('File Cancellation Date'),
+            };
         }""")
         print(f"  Scraped: {scraped}")
         if scraped.get("fileStatus"):
             captured["data"] = {
-                "fileStatus":                       scraped.get("fileStatus", ""),
+                "fileStatus":                       scraped["fileStatus"],
                 "fileNo":                           scraped.get("fileNo", ""),
-                "fileIssuanceDate":                 scraped.get("fileIssuanceDate", ""),
+                "fileIssuanceDate":                 scraped.get("fileIss", ""),
                 "lastDateAllowedToEnterTheCountry": scraped.get("lastDate", ""),
                 "fileCancellationDate":             scraped.get("cancelDate", ""),
             }
