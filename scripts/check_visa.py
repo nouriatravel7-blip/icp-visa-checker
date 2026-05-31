@@ -176,34 +176,29 @@ def check_via_browser(page, emp):
 
         time.sleep(2)  # Let page render results
 
-        # Scrape page for human-readable values
-        scraped = page.evaluate("""() => {
-            function find(label) {
-                const all = document.querySelectorAll('span, label, td, p, div, li');
-                for (const el of all) {
-                    const t = (el.innerText || '').trim();
-                    if (t.startsWith(label) && t.includes(':')) {
-                        return t.split(':').slice(1).join(':').trim();
-                    }
-                }
-                return '';
-            }
-            return {
-                fileStatus:  find('File Status'),
-                fileNo:      find('File No'),
-                fileIss:     find('File Issuance Date'),
-                lastDate:    find('Last Date Allowed'),
-                cancelDate:  find('File Cancellation Date'),
-            };
-        }""")
-        print(f"  Scraped: {scraped}")
-        if scraped.get("fileStatus"):
+        # Scrape full page text and extract values with regex
+        import re
+        body_text = page.inner_text("body")
+        print(f"  Page snippet: {body_text[body_text.find('File Status'):body_text.find('File Status')+200]}")
+
+        def extract(pattern, text):
+            m = re.search(pattern, text)
+            return m.group(1).strip() if m else ""
+
+        file_status = extract(r"File Status\s*:\s*(.+?)(?:\n|File)", body_text)
+        file_no_raw = extract(r"File No[.\s]*:\s*(.+?)(?:\n|Emirate)", body_text)
+        file_iss    = extract(r"File Issuance Date\s*:\s*(.+?)(?:\n|File)", body_text)
+        last_date   = extract(r"Last Date Allowed[^:]*:\s*(.+?)(?:\n|File)", body_text)
+        cancel_date = extract(r"File Cancellation Date\s*:\s*(.+?)(?:\n|$)", body_text)
+
+        print(f"  Scraped — Status:{file_status} | Last:{last_date} | Cancel:{cancel_date}")
+        if file_status:
             captured["data"] = {
-                "fileStatus":                       scraped["fileStatus"],
-                "fileNo":                           scraped.get("fileNo", ""),
-                "fileIssuanceDate":                 scraped.get("fileIss", ""),
-                "lastDateAllowedToEnterTheCountry": scraped.get("lastDate", ""),
-                "fileCancellationDate":             scraped.get("cancelDate", ""),
+                "fileStatus":                       file_status,
+                "fileNo":                           file_no_raw,
+                "fileIssuanceDate":                 file_iss,
+                "lastDateAllowedToEnterTheCountry": last_date,
+                "fileCancellationDate":             cancel_date,
             }
 
     except Exception as e:
