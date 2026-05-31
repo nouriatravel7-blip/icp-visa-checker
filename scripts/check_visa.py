@@ -169,43 +169,38 @@ def check_via_browser(page, emp):
                     break
             except: pass
 
-        # Wait for results section to appear
-        try:
-            page.wait_for_selector("text=File Status", timeout=15000)
-            time.sleep(1)
-        except:
-            pass
+        # Wait 3 seconds for results to render
+        time.sleep(3)
 
-        # Scrape results directly from the page labels
-        def scrape_field(label):
-            try:
-                els = page.locator(f"text={label}").all()
-                for el in els:
-                    txt = (el.inner_text() or "").strip()
-                    if ":" in txt:
-                        return txt.split(":", 1)[1].strip()
-                    sib = el.locator("xpath=following-sibling::*[1]")
-                    if sib.count() > 0:
-                        return sib.first.inner_text().strip()
-            except:
-                pass
-            return ""
-
-        file_status = scrape_field("File Status")
-        file_no     = scrape_field("File No")
-        file_iss    = scrape_field("File Issuance Date")
-        last_date   = scrape_field("Last Date Allowed to Enter the Country")
-        cancel_date = scrape_field("File Cancellation Date")
-
-        print(f"  Scraped — Status: {file_status} | Last Date: {last_date}")
-
-        if file_status:
+        # Scrape directly via JavaScript
+        scraped = page.evaluate("""() => {
+            const rows = document.querySelectorAll('span, label, td, p, div');
+            const data = {};
+            const labels = {
+                'File Status': 'fileStatus',
+                'File No': 'fileNo',
+                'File Issuance Date': 'fileIssuanceDate',
+                'Last Date Allowed': 'lastDate',
+                'File Cancellation Date': 'cancelDate'
+            };
+            rows.forEach(el => {
+                const txt = (el.innerText || '').trim();
+                for (const [label, key] of Object.entries(labels)) {
+                    if (txt.startsWith(label) && txt.includes(':')) {
+                        data[key] = txt.split(':').slice(1).join(':').trim();
+                    }
+                }
+            });
+            return data;
+        }""")
+        print(f"  Scraped: {scraped}")
+        if scraped.get("fileStatus"):
             captured["data"] = {
-                "fileStatus":                       file_status,
-                "fileNo":                           file_no,
-                "fileIssuanceDate":                 file_iss,
-                "lastDateAllowedToEnterTheCountry": last_date,
-                "fileCancellationDate":             cancel_date,
+                "fileStatus":                       scraped.get("fileStatus", ""),
+                "fileNo":                           scraped.get("fileNo", ""),
+                "fileIssuanceDate":                 scraped.get("fileIssuanceDate", ""),
+                "lastDateAllowedToEnterTheCountry": scraped.get("lastDate", ""),
+                "fileCancellationDate":             scraped.get("cancelDate", ""),
             }
 
     except Exception as e:
@@ -293,11 +288,11 @@ def main():
             if not raw:
                 print("  ✗ No response received, skipping"); continue
 
-            status   = (raw.get("fileStatus") or "UNKNOWN").upper()
-            expire   = raw.get("lastDateAllowedToEnterTheCountry") or ""
-            file_no  = raw.get("fileNo") or ""
-            file_iss = raw.get("fileIssuanceDate") or ""
-            file_can = raw.get("fileCancellationDate") or ""
+            status   = (raw.get("fileStatus") or "UNKNOWN").upper().strip()
+            expire   = (raw.get("lastDateAllowedToEnterTheCountry") or "").strip()
+            file_no  = (raw.get("fileNo") or "").strip()
+            file_iss = (raw.get("fileIssuanceDate") or "").strip()
+            file_can = (raw.get("fileCancellationDate") or "").strip()
             alert, days = classify(status, expire)
 
             print(f"  ✓ Status: {status} | Expires: {expire} | Alert: {alert}")
