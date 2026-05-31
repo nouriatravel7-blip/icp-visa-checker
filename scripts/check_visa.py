@@ -81,15 +81,13 @@ def refresh_token(page):
     print("  Token refresh — reloading page...")
     return load_page_and_pass_cloudflare(page)
 
-BATCH_SIZE = 10  # calls fired in parallel via Promise.all
-
-def call_api_batch(page, batch_payloads, token):
-    """Fire multiple API calls simultaneously via Promise.all in Chrome JS."""
-    results = page.evaluate("""async ([url, payloads, token]) => {
-        const calls = payloads.map(payload => {
-            payload.recaptchaResponse = token;
-            payload.isUsingCaptcha = !!token;
-            return fetch(url, {
+def call_api_single(page, payload, token):
+    """Fire one API call from Chrome JS context — cookies included automatically."""
+    payload["recaptchaResponse"] = token
+    payload["isUsingCaptcha"] = bool(token)
+    result = page.evaluate("""async ([url, payload]) => {
+        try {
+            const r = await fetch(url, {
                 method: 'POST',
                 headers: {
                     'accept': 'application/json, text/plain, */*',
@@ -98,12 +96,13 @@ def call_api_batch(page, batch_payloads, token):
                     'languageid': '2',
                 },
                 body: JSON.stringify(payload)
-            }).then(r => r.json().then(data => ({ ok: r.ok, status: r.status, data })))
-              .catch(e => ({ ok: false, error: e.toString() }));
-        });
-        return Promise.all(calls);
-    }""", [API_URL, batch_payloads, token])
-    return results
+            });
+            return { ok: r.ok, status: r.status, data: await r.json() };
+        } catch(e) {
+            return { ok: false, error: e.toString() };
+        }
+    }""", [API_URL, payload])
+    return result
 
 def build_payload(emp):
     uid = str(emp.get("Emirate Unified Number") or "").strip()
@@ -223,61 +222,60 @@ def main():
 
         all_updates = []  # collect ALL sheet updates, write once at end
 
-        # Process in batches of BATCH_SIZE using Promise.all
-        for batch_start in range(0, len(to_check), BATCH_SIZE):
-            batch_items = to_check[batch_start:batch_start + BATCH_SIZE]
-            payloads = [build_payload(emp) for _, emp, _, _ in batch_items]
+        for idx, (i, emp, name, uid) in enumerate(to_check):
+            print(f"[{idx+1}/{len(to_check)}] {name[:35]:<35}", end="  ", flush=True)
 
-            # Refresh token before each batch
+            # Fresh token for every call (tokens are single-use)
             token = refresh_token(page)
+            result = call_api_single(page, build_payload(emp), token)
 
-            api_results = call_api_batch(page, payloads, token)
+            if not result or not result.get("ok"):
+                status_code = (result or {}).get("status", "?")
+                print(f"✗ API {status_code}")
+                if status_code in (400, 401, 403):
+                    print("  Session expired — reloading...")
+                    token = load_page_and_pass_cloudflare(page)
+                continue
 
-            for j, ((i, emp, name, uid), result) in enumerate(zip(batch_items, api_results)):
-                done = batch_start + j + 1
-                print(f"[{done}/{len(to_check)}] {name[:35]:<35}", end="  ", flush=True)
+            raw = result.get("data", {})
+            d   = raw.get("fileValidity") or raw
+            svc = d.get("serviceStatus") or {}
+            status   = (svc.get("text") or svc.get("enDescription") or
+                        svc.get("description") or d.get("fileStatus") or "UNKNOWN").upper().strip()
+            expire   = fmt_date(d.get("validityDate") or d.get("expireDate") or
+                                 d.get("lastDateAllowedToEnterTheCountry") or d.get("fileExpireDate"))
+            file_no  = (d.get("fileNo") or d.get("fileNoFormatted") or
+                        f"{d.get('fileDepartmentCode','')}/{d.get('fileServiceYear','')}/{d.get('fileServiceCode','')}/{d.get('fileSequenceNumber','')}").strip("/")
+            file_iss = fmt_date(d.get("issuanceDate") or d.get("fileIssuanceDate"))
+            file_can = fmt_date(d.get("cancelDate") or d.get("fileCancellationDate"))
+            alert, days = classify(status, expire)
 
-                if not result or not result.get("ok"):
-                    status_code = (result or {}).get("status", "?")
-                    print(f"✗ API {status_code}")
-                    if status_code in (400, 401, 403):
-                        print("  Session expired — reloading...")
-                        token = load_page_and_pass_cloudflare(page)
-                    continue
+            print(f"→ {alert} {status[:30]} | {expire}")
 
-                raw = result.get("data", {})
-                d   = raw.get("fileValidity") or raw
-                svc = d.get("serviceStatus") or {}
-                status   = (svc.get("text") or svc.get("enDescription") or
-                            svc.get("description") or d.get("fileStatus") or "UNKNOWN").upper().strip()
-                expire   = fmt_date(d.get("validityDate") or d.get("expireDate") or
-                                     d.get("lastDateAllowedToEnterTheCountry") or d.get("fileExpireDate"))
-                file_no  = (d.get("fileNo") or d.get("fileNoFormatted") or
-                            f"{d.get('fileDepartmentCode','')}/{d.get('fileServiceYear','')}/{d.get('fileServiceCode','')}/{d.get('fileSequenceNumber','')}").strip("/")
-                file_iss = fmt_date(d.get("issuanceDate") or d.get("fileIssuanceDate"))
-                file_can = fmt_date(d.get("cancelDate") or d.get("fileCancellationDate"))
-                alert, days = classify(status, expire)
+            col_map = {
+                "File No.":                               file_no,
+                "File Status":                            status,
+                "File Issuance Date":                     file_iss,
+                "Last Date Allowed to Enter the Country": expire,
+                "File Cancellation Date":                 file_can,
+                "AlertLevel":                             alert,
+                "DaysLeft":                               days if days is not None else "",
+                "LastChecked":                            today,
+            }
 
-                print(f"→ {alert} {status[:30]} | {expire}")
+            row_num = i + 2
+            for col_name, val in col_map.items():
+                if col_name in header_idx:
+                    cidx = header_idx[col_name]
+                    all_updates.append({"range": f"{col_letter(cidx)}{row_num}", "values": [[str(val)]]})
 
-                col_map = {
-                    "File No.":                               file_no,
-                    "File Status":                            status,
-                    "File Issuance Date":                     file_iss,
-                    "Last Date Allowed to Enter the Country": expire,
-                    "File Cancellation Date":                 file_can,
-                    "AlertLevel":                             alert,
-                    "DaysLeft":                               days if days is not None else "",
-                    "LastChecked":                            today,
-                }
+            results.append({"name": name, "status": status, "alert": alert})
 
-                row_num = i + 2
-                for col_name, val in col_map.items():
-                    if col_name in header_idx:
-                        cidx = header_idx[col_name]
-                        all_updates.append({"range": f"{col_letter(cidx)}{row_num}", "values": [[str(val)]]})
-
-                results.append({"name": name, "status": status, "alert": alert})
+            # Write to sheet every 50 employees to preserve progress on crash
+            if (idx + 1) % 50 == 0 and all_updates:
+                print(f"  💾 Saving progress ({len(all_updates)} updates)...")
+                sheet.batch_update(all_updates)
+                all_updates.clear()
 
         # Single sheet write for all employees
         if all_updates:
