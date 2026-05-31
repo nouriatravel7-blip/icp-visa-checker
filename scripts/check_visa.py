@@ -1,6 +1,6 @@
-import json, time, os, base64, gspread
+import json, time, os, base64, gspread, subprocess
 from datetime import datetime
-from patchright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright
 from google.oauth2.service_account import Credentials
 
 GOOGLE_SHEET_ID = os.environ["GOOGLE_SHEET_ID"]
@@ -209,18 +209,28 @@ def main():
     today = datetime.now().strftime("%d/%m/%Y")
     results = []
 
+    # Launch real Chrome with remote debugging so Cloudflare sees a genuine browser
+    chrome_paths = [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    ]
+    chrome_exe = next((p for p in chrome_paths if os.path.exists(p)), None)
+    if not chrome_exe:
+        raise RuntimeError("Chrome not found. Please install Google Chrome.")
+
+    chrome_proc = subprocess.Popen([
+        chrome_exe,
+        "--remote-debugging-port=9222",
+        "--user-data-dir=C:\\chrome-icp-session",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--start-maximized",
+    ])
+    time.sleep(3)  # Wait for Chrome to start
+
     with sync_playwright() as p:
-        ctx = p.chromium.launch_persistent_context(
-            user_data_dir=r"C:\Users\psi\AppData\Local\Google\Chrome\User Data",
-            channel="chrome",
-            headless=False,
-            args=[
-                "--no-sandbox", "--disable-setuid-sandbox",
-                "--disable-blink-features=AutomationControlled",
-                "--profile-directory=Default"
-            ],
-            viewport={"width":1366,"height":768}
-        )
+        browser = p.chromium.connect_over_cdp("http://localhost:9222")
+        ctx = browser.contexts[0] if browser.contexts else browser.new_context()
         page = ctx.new_page()
 
         for i, emp in enumerate(rows):
@@ -270,7 +280,8 @@ def main():
             results.append({"name": name, "status": status, "alert": alert})
             time.sleep(1)
 
-        ctx.close()
+        browser.close()
+    chrome_proc.terminate()
 
     print(f"\n{'='*55}\n  SUMMARY\n{'='*55}")
     for r in results:
