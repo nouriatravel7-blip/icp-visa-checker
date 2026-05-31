@@ -200,12 +200,14 @@ def main():
         def handle_route(route, request):
             if "fileValidityNew" in request.url:
                 try:
-                    resp = route.fetch()  # fetches body AND resolves the route
+                    resp = route.fetch()
                     captured["data"] = resp.json()
                     print(f"  ✓ API captured")
+                    route.fulfill(response=resp)  # unblock Chrome so the request completes immediately
                 except Exception as e:
                     print(f"  ✗ Route error: {e}")
-                # Do NOT call route.continue_() or route.fulfill() — fetch() already handled it
+                    try: route.continue_()
+                    except: pass
 
         page.route("**/*fileValidityNew*", handle_route)
 
