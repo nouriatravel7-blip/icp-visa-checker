@@ -34,14 +34,22 @@ def check_via_browser(page, emp):
     captured = {}
 
     def handle_route(route, request):
-        response = route.fetch()
         if "fileValidityNew" in request.url:
             try:
+                response = route.fetch()
                 captured["data"] = response.json()
                 print(f"  ✓ API FULL: {json.dumps(captured['data'])}")
             except Exception as e:
                 print(f"  ✗ Parse error: {e}")
-        route.fulfill(response=response)
+            try:
+                route.continue_()
+            except Exception:
+                pass
+        else:
+            try:
+                route.continue_()
+            except Exception:
+                pass
 
     page.route("**/*fileValidityNew*", handle_route)
 
@@ -134,7 +142,10 @@ def classify(status, expire):
     if expire:
         try:
             p = str(expire).split("/")
-            e = datetime(int(p[0]),int(p[1]),int(p[2])) if len(p[0])==4 else datetime(int(p[2]),int(p[1]),int(p[0]))
+            if len(p[0]) == 4:
+                e = datetime(int(p[0]), int(p[1]), int(p[2]))
+            else:
+                e = datetime(int(p[2]), int(p[1]), int(p[0]))
             days = (e - datetime.now()).days
         except: pass
     if any(x in s for x in ["CANCEL","OVERSTAY","EXPIRED","REJECTED","ABSCONDING"]): return "🔴 CRITICAL", days
@@ -207,14 +218,20 @@ def main():
                 print("  ✗ No response received, skipping"); continue
 
             d = raw.get("fileValidity") or raw
-            status   = (d.get("fileStatus") or d.get("serviceStatus", {}).get("enDescription") or
-                        d.get("serviceStatus", {}).get("description") or "UNKNOWN").upper().strip()
-            expire   = (d.get("lastDateAllowedToEnterTheCountry") or d.get("lastDateAllowed") or
-                        d.get("fileExpireDate") or "").strip()
+            svc = d.get("serviceStatus") or {}
+            status   = (svc.get("text") or svc.get("enDescription") or
+                        svc.get("description") or d.get("fileStatus") or "UNKNOWN").upper().strip()
+
+            def fmt_date(dt_str):
+                if not dt_str: return ""
+                return str(dt_str).split("T")[0].replace("-", "/")
+
+            expire   = fmt_date(d.get("validityDate") or d.get("expireDate") or
+                                 d.get("lastDateAllowedToEnterTheCountry") or d.get("fileExpireDate"))
             file_no  = (d.get("fileNo") or d.get("fileNoFormatted") or
                         f"{d.get('fileDepartmentCode','')}/{d.get('fileServiceYear','')}/{d.get('fileServiceCode','')}/{d.get('fileSequenceNumber','')}").strip("/")
-            file_iss = (d.get("fileIssuanceDate") or d.get("issuanceDate") or "").strip()
-            file_can = (d.get("fileCancellationDate") or d.get("cancellationDate") or "").strip()
+            file_iss = fmt_date(d.get("issuanceDate") or d.get("fileIssuanceDate"))
+            file_can = fmt_date(d.get("cancelDate") or d.get("fileCancellationDate"))
             alert, days = classify(status, expire)
 
             print(f"  ✓ Status: {status} | Expires: {expire} | Alert: {alert}")
