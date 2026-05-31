@@ -29,8 +29,19 @@ def connect_sheet():
     print("  Connected to Google Sheets!")
     return gc.open_by_key(GOOGLE_SHEET_ID).sheet1
 
-def fill_form(page, emp, captured):
-    """Fill the ICP form and wait for API response captured by the shared route handler."""
+def check_via_browser(page, emp):
+    captured = {}
+
+    def on_response(r):
+        if "fileValidityNew" in r.url and r.request.method == "POST":
+            try:
+                captured["data"] = r.json()
+                print(f"  ✓ API captured")
+            except Exception as e:
+                print(f"  ✗ Failed to parse response: {e}")
+
+    page.on("response", on_response)
+
     try:
         uid = str(emp.get("Emirate Unified Number") or "").strip()
         nationality = NATIONALITY_MAP.get(str(emp.get("Nationality", "")).upper(), "")
@@ -49,36 +60,52 @@ def fill_form(page, emp, captured):
             page.goto(ICP_URL, wait_until="domcontentloaded", timeout=45000)
         else:
             page.reload(wait_until="domcontentloaded", timeout=45000)
-
         page.wait_for_selector("input[type='radio']", timeout=20000)
-        time.sleep(3)  # Wait for Cloudflare to auto-verify
+
+        print("  Waiting for Cloudflare...")
+        try:
+            page.wait_for_selector("iframe[src*='cloudflare'], iframe[src*='recaptcha'], .g-recaptcha, #cf-turnstile", timeout=15000)
+        except:
+            pass
+        time.sleep(3)
+
+        for _ in range(40):
+            if page.locator("text=Verification failed").count() == 0:
+                print("  ✓ Cloudflare passed!")
+                break
+            time.sleep(0.5)
+        else:
+            print("  ✗ Cloudflare failed — skipping")
+            return None
+
+        time.sleep(1)
 
         # Select Visa (2) or Residency (1)
         try:
             page.locator(f"input[name='selectModule'][value='{file_module}']").click()
-            time.sleep(0.2)
+            time.sleep(0.4)
         except: pass
 
         # Select "Emirate Unified Number" radio
         for lbl in page.locator("label").all():
             try:
                 if "emirate unified" in (lbl.inner_text() or "").lower():
-                    lbl.click(); time.sleep(0.2); break
+                    lbl.click(); time.sleep(0.5); break
             except: pass
 
         # Fill UID
         page.locator("input[type='text']:visible").first.fill(uid)
-        time.sleep(0.2)
+        time.sleep(0.3)
 
         # Select nationality
         if nationality:
             try:
                 page.locator(".ui-select-container, select, [ng-model*='nation'], [ng-model*='Nation']").first.click()
-                time.sleep(0.3)
-                page.locator(".ui-select-search, input[placeholder*='earch'], input[placeholder*='elect']").first.fill(nationality)
                 time.sleep(0.5)
-                page.locator(f".ui-select-choices-row:has-text('{nationality}'), li:has-text('{nationality}')").first.click()
-                time.sleep(0.2)
+                page.locator(".ui-select-search, input[placeholder*='earch'], input[placeholder*='elect']").first.fill(nationality)
+                time.sleep(0.8)
+                page.locator(f".ui-select-choices-row:has-text('{nationality}'), li:has-text('{nationality}'), option:has-text('{nationality}')").first.click()
+                time.sleep(0.3)
             except:
                 try: page.locator("select").first.select_option(label=nationality)
                 except: pass
@@ -87,16 +114,21 @@ def fill_form(page, emp, captured):
         if dob:
             try:
                 dob_input = page.locator("input[placeholder*='Date'], input[placeholder*='date'], input[placeholder*='dd/']").first
+                dob_input.click()
                 dob_input.fill(dob)
                 page.keyboard.press("Tab")
-                time.sleep(0.2)
+                time.sleep(0.3)
             except: pass
+
+        time.sleep(1)
 
         # Click Search
         for btn in page.locator("button:visible").all():
             try:
                 if any(w in (btn.inner_text() or "").lower() for w in ["search", "check", "submit"]):
-                    btn.click(); break
+                    btn.click()
+                    print("  Clicked Search")
+                    break
             except: pass
 
         # Wait up to 15s for API response
@@ -106,6 +138,14 @@ def fill_form(page, emp, captured):
 
     except Exception as e:
         print(f"  Browser error: {e}")
+    finally:
+        page.remove_listener("response", on_response)
+
+    return captured.get("data")
+
+def fmt_date(dt_str):
+    if not dt_str: return ""
+    return str(dt_str).split("T")[0].replace("-", "/")
 
 def classify(status, expire):
     s = (status or "").upper()
@@ -113,10 +153,7 @@ def classify(status, expire):
     if expire:
         try:
             p = str(expire).split("/")
-            if len(p[0]) == 4:
-                e = datetime(int(p[0]), int(p[1]), int(p[2]))
-            else:
-                e = datetime(int(p[2]), int(p[1]), int(p[0]))
+            e = datetime(int(p[0]),int(p[1]),int(p[2])) if len(p[0])==4 else datetime(int(p[2]),int(p[1]),int(p[0]))
             days = (e - datetime.now()).days
         except: pass
     if any(x in s for x in ["CANCEL","OVERSTAY","EXPIRED","REJECTED","ABSCONDING"]): return "🔴 CRITICAL", days
@@ -141,7 +178,6 @@ def main():
     today = datetime.now().strftime("%d/%m/%Y")
     results = []
 
-    # Launch real Chrome directly to the ICP page with remote debugging
     chrome_paths = [
         r"C:\Program Files\Google\Chrome\Application\chrome.exe",
         r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
@@ -152,43 +188,26 @@ def main():
 
     chrome_proc = subprocess.Popen([
         chrome_exe,
-        f"--remote-debugging-port=9222",
-        f"--user-data-dir=C:\\chrome-icp-session",
+        "--remote-debugging-port=9222",
+        "--user-data-dir=C:\\chrome-icp-session",
         "--no-first-run",
         "--no-default-browser-check",
         "--start-maximized",
-        ICP_URL,   # Open ICP page directly on launch
+        ICP_URL,
     ])
     print("  Chrome launched — waiting for it to load...")
-    time.sleep(6)  # Give Chrome time to open and load the page
+    time.sleep(6)
 
     with sync_playwright() as p:
         browser = p.chromium.connect_over_cdp("http://localhost:9222")
         print(f"  Connected to Chrome. Contexts: {len(browser.contexts)}")
         if browser.contexts:
             ctx = browser.contexts[0]
-            # Use existing page or open new one
-            pages = ctx.pages
-            page = pages[0] if pages else ctx.new_page()
+            page = ctx.pages[0] if ctx.pages else ctx.new_page()
         else:
             ctx = browser.new_context()
             page = ctx.new_page()
         print(f"  Browser ready. Starting checks...")
-
-        # Register route handler ONCE — shared across all employees
-        captured = {}
-
-        def handle_route(route, request):
-            if "fileValidityNew" in request.url:
-                try:
-                    response = route.fetch()
-                    captured["data"] = response.json()
-                    print(f"  ✓ API FULL: {json.dumps(captured['data'])}")
-                except Exception as e:
-                    print(f"  ✗ Route fetch error: {e}")
-            # Don't call continue/fulfill — route.fetch() already handled it
-
-        page.route("**/*fileValidityNew*", handle_route)
 
         for i, emp in enumerate(rows):
             name = (emp.get("VISA  NAME ") or emp.get("Customer Name") or emp.get("Name") or f"Row {i+2}")
@@ -199,9 +218,7 @@ def main():
 
             print(f"\n[{i+1}/{len(rows)}] Checking: {name} — UID: {uid}")
 
-            captured.clear()
-            fill_form(page, emp, captured)
-            raw = captured.get("data")
+            raw = check_via_browser(page, emp)
             if not raw:
                 print("  ✗ No response received, skipping"); continue
 
@@ -209,11 +226,6 @@ def main():
             svc = d.get("serviceStatus") or {}
             status   = (svc.get("text") or svc.get("enDescription") or
                         svc.get("description") or d.get("fileStatus") or "UNKNOWN").upper().strip()
-
-            def fmt_date(dt_str):
-                if not dt_str: return ""
-                return str(dt_str).split("T")[0].replace("-", "/")
-
             expire   = fmt_date(d.get("validityDate") or d.get("expireDate") or
                                  d.get("lastDateAllowedToEnterTheCountry") or d.get("fileExpireDate"))
             file_no  = (d.get("fileNo") or d.get("fileNoFormatted") or
@@ -244,6 +256,7 @@ def main():
                     batch.append({"range": f"{col_letter}{row_num}", "values": [[str(val)]]})
             if batch:
                 sheet.batch_update(batch)
+                print(f"  ✓ Sheet updated")
 
             results.append({"name": name, "status": status, "alert": alert})
 
