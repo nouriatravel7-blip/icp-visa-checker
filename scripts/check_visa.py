@@ -62,7 +62,10 @@ def check_via_browser(page, emp):
         file_module = 1 if raw_module in ("1", "residency") else 2
         type_label = "Visa" if file_module == 2 else "Residency"
 
-        page.goto(ICP_URL, wait_until="domcontentloaded", timeout=45000)
+        if ICP_URL not in (page.url or ""):
+            page.goto(ICP_URL, wait_until="domcontentloaded", timeout=45000)
+        else:
+            page.reload(wait_until="domcontentloaded", timeout=45000)
         page.wait_for_selector("input[type='radio']", timeout=20000)
 
         # Wait for Cloudflare widget to appear first
@@ -209,7 +212,7 @@ def main():
     today = datetime.now().strftime("%d/%m/%Y")
     results = []
 
-    # Launch real Chrome with remote debugging
+    # Launch real Chrome directly to the ICP page with remote debugging
     chrome_paths = [
         r"C:\Program Files\Google\Chrome\Application\chrome.exe",
         r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
@@ -220,13 +223,15 @@ def main():
 
     chrome_proc = subprocess.Popen([
         chrome_exe,
-        "--remote-debugging-port=9222",
-        "--user-data-dir=C:\\chrome-icp-session",
+        f"--remote-debugging-port=9222",
+        f"--user-data-dir=C:\\chrome-icp-session",
         "--no-first-run",
         "--no-default-browser-check",
         "--start-maximized",
+        ICP_URL,   # Open ICP page directly on launch
     ])
-    time.sleep(4)  # Wait for Chrome to fully start
+    print("  Chrome launched — waiting for it to load...")
+    time.sleep(6)  # Give Chrome time to open and load the page
 
     with sync_playwright() as p:
         browser = p.chromium.connect_over_cdp("http://localhost:9222")
