@@ -209,12 +209,12 @@ def main():
     today = datetime.now().strftime("%d/%m/%Y")
     results = []
 
-    # Launch real Chrome with remote debugging so Cloudflare sees a genuine browser
+    # Launch real Chrome with remote debugging
     chrome_paths = [
         r"C:\Program Files\Google\Chrome\Application\chrome.exe",
         r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
     ]
-    chrome_exe = next((p for p in chrome_paths if os.path.exists(p)), None)
+    chrome_exe = next((cp for cp in chrome_paths if os.path.exists(cp)), None)
     if not chrome_exe:
         raise RuntimeError("Chrome not found. Please install Google Chrome.")
 
@@ -226,12 +226,20 @@ def main():
         "--no-default-browser-check",
         "--start-maximized",
     ])
-    time.sleep(3)  # Wait for Chrome to start
+    time.sleep(4)  # Wait for Chrome to fully start
 
     with sync_playwright() as p:
         browser = p.chromium.connect_over_cdp("http://localhost:9222")
-        ctx = browser.contexts[0] if browser.contexts else browser.new_context()
-        page = ctx.new_page()
+        print(f"  Connected to Chrome. Contexts: {len(browser.contexts)}")
+        if browser.contexts:
+            ctx = browser.contexts[0]
+            # Use existing page or open new one
+            pages = ctx.pages
+            page = pages[0] if pages else ctx.new_page()
+        else:
+            ctx = browser.new_context()
+            page = ctx.new_page()
+        print(f"  Browser ready. Starting checks...")
 
         for i, emp in enumerate(rows):
             name = (emp.get("VISA  NAME ") or emp.get("Customer Name") or emp.get("Name") or f"Row {i+2}")
