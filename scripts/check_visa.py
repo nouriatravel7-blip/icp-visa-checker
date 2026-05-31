@@ -96,7 +96,7 @@ def fill_form(page, emp, captured, first_load=False):
             except: pass
 
         # Fill UID
-        page.locator("input[type='text']:visible").first.triple_click()
+        page.locator("input[type='text']:visible").first.click(click_count=3)
         page.locator("input[type='text']:visible").first.fill(uid)
         time.sleep(0.2)
 
@@ -122,7 +122,7 @@ def fill_form(page, emp, captured, first_load=False):
         if dob:
             try:
                 dob_input = page.locator("input[placeholder*='Date'], input[placeholder*='date'], input[placeholder*='dd/']").first
-                dob_input.triple_click()
+                dob_input.click(click_count=3)
                 dob_input.fill(dob)
                 page.keyboard.press("Tab")
                 time.sleep(0.2)
