@@ -64,10 +64,13 @@ def check_via_browser(page, emp):
         time.sleep(2)
 
         # Select the Type: Visa or Residency
-        for lbl in page.locator("label").all():
+        try:
+            page.locator(f"label:has-text('{type_label}')").nth(0).click()
+            time.sleep(0.4)
+        except:
             try:
-                if (lbl.inner_text() or "").strip() == type_label:
-                    lbl.click(); time.sleep(0.4); break
+                page.get_by_text(type_label, exact=True).first.click()
+                time.sleep(0.4)
             except: pass
 
         # Select "Emirate Unified Number" radio button
