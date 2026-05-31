@@ -134,6 +134,17 @@ def check_via_browser(page, emp):
 
         time.sleep(1)
 
+        # Check reCAPTCHA token value before clicking
+        token_val = page.evaluate("""()=>{
+            const selectors = ['textarea[name="g-recaptcha-response"]','input[name="cf-turnstile-response"]'];
+            for(const s of selectors){
+                const el = document.querySelector(s);
+                if(el) return el.value || '(empty)';
+            }
+            return 'not found';
+        }""")
+        print(f"  CAPTCHA token before search: {token_val[:60]}")
+
         # Click Search button
         for btn in page.locator("button:visible").all():
             try:
@@ -141,6 +152,17 @@ def check_via_browser(page, emp):
                 if any(w in txt for w in ["search", "check", "submit"]):
                     btn.click()
                     print("  Clicked Search button")
+                    break
+            except: pass
+
+        time.sleep(3)
+
+        # Check for any error message shown after clicking Search
+        for err_sel in ["text=reCAPTCHA", "text=CAPTCHA", "text=Verification", ".alert", ".error", "[class*='error']", "[class*='alert']"]:
+            try:
+                err = page.locator(err_sel).first.inner_text()
+                if err.strip():
+                    print(f"  Page message: {err.strip()[:100]}")
                     break
             except: pass
 
