@@ -137,18 +137,19 @@ def classify(status, expire):
             e = datetime(int(p[0]),int(p[1]),int(p[2])) if len(p[0])==4 else datetime(int(p[2]),int(p[1]),int(p[0]))
             days = (e - datetime.now()).days
         except: pass
-    # Canceled/rejected/converted — always critical regardless of dates
-    if any(x in s for x in ["CANCEL","OVERSTAY","REJECTED","ABSCONDING","CONVERTED"]): return "🔴 CRITICAL", days
-    # USED — apply days-left thresholds
-    if "USED" in s:
-        if days is None:       return "🟢 OK", days
-        if days < 0:           return "🔴🔴 SUPER CRITICAL", days
-        if days < 5:           return "🔴 CRITICAL", days
-        if days < 10:          return "🟡 WARNING", days
+    # OVERSTAY — always critical
+    if "OVERSTAY" in s: return "🔴 CRITICAL", days
+    # CANCELED / REJECTED / CONVERTED / ABSCONDING — always OK
+    if any(x in s for x in ["CANCEL","REJECTED","CONVERTED","ABSCONDING"]): return "🟢 OK", days
+    # USED / ACTIVE / INSIDE — days-based
+    if any(x in s for x in ["USED","ACTIVE","INSIDE"]):
+        if days is None:  return "🟢 OK", days
+        if days < 0:      return "🔴🔴 SUPER CRITICAL", days
+        if days < 5:      return "🔴 CRITICAL", days
+        if days < 10:     return "🟡 WARNING", days
         return "🟢 OK", days
-    # All other statuses (ACTIVE, INSIDE, etc.) — always OK
-    if s and s != "UNKNOWN":   return "🟢 OK", days
-    return "⚪ UNKNOWN", days
+    # No data / unrecognised
+    return "⚪ No Data", days
 
 def main():
     print("="*55)
