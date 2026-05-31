@@ -210,12 +210,15 @@ def main():
     results = []
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False, args=[
-            "--no-sandbox", "--disable-setuid-sandbox",
-            "--disable-blink-features=AutomationControlled"
-        ])
-        ctx = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+        ctx = p.chromium.launch_persistent_context(
+            user_data_dir=r"C:\Users\psi\AppData\Local\Google\Chrome\User Data",
+            channel="chrome",
+            headless=False,
+            args=[
+                "--no-sandbox", "--disable-setuid-sandbox",
+                "--disable-blink-features=AutomationControlled",
+                "--profile-directory=Default"
+            ],
             viewport={"width":1366,"height":768}
         )
         page = ctx.new_page()
@@ -267,7 +270,7 @@ def main():
             results.append({"name": name, "status": status, "alert": alert})
             time.sleep(1)
 
-        browser.close()
+        ctx.close()
 
     print(f"\n{'='*55}\n  SUMMARY\n{'='*55}")
     for r in results:
