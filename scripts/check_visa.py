@@ -36,8 +36,9 @@ def check_via_browser(page, emp):
     def on_response(r):
         if "fileValidityNew" in r.url and r.request.method == "POST":
             try:
-                captured["data"] = r.json()
-                print(f"  ✓ API FULL: {json.dumps(captured['data'])}")
+                body = r.body()
+                captured["data"] = json.loads(body)
+                print(f"  ✓ API captured")
             except Exception as e:
                 print(f"  ✗ Failed to parse response: {e}")
 
@@ -48,23 +49,22 @@ def check_via_browser(page, emp):
         nationality = NATIONALITY_MAP.get(str(emp.get("Nationality", "")).upper(), "")
         dob_raw = str(emp.get("dateOfBirth") or emp.get("DOB") or "").strip()
 
-        # Convert DOB to dd/MM/yyyy for the form
         dob = dob_raw
         if dob and "/" in dob:
             parts = dob.split("/")
             if len(parts) == 3 and len(parts[0]) == 4:
-                # yyyy/MM/dd → dd/MM/yyyy
                 dob = f"{parts[2]}/{parts[1]}/{parts[0]}"
 
         raw_module = str(emp.get("fileModuleId") or "2").strip().lower()
         file_module = 1 if raw_module in ("1", "residency") else 2
-        type_label = "Visa" if file_module == 2 else "Residency"
 
         if ICP_URL not in (page.url or ""):
             page.goto(ICP_URL, wait_until="domcontentloaded", timeout=45000)
         else:
             page.reload(wait_until="domcontentloaded", timeout=45000)
+
         page.wait_for_selector("input[type='radio']", timeout=20000)
+        time.sleep(3)  # Wait for Cloudflare to auto-verify
 
         # Select the Type: Visa (2) or Residency (1)
         try:
@@ -116,6 +116,13 @@ def check_via_browser(page, emp):
         for _ in range(30):
             if captured.get("data"): break
             time.sleep(0.5)
+
+    except Exception as e:
+        print(f"  Browser error: {e}")
+    finally:
+        page.remove_listener("response", on_response)
+
+    return captured.get("data")
 
     except Exception as e:
         print(f"  Browser error: {e}")
@@ -202,11 +209,15 @@ def main():
             if not raw:
                 print("  ✗ No response received, skipping"); continue
 
-            status   = (raw.get("fileStatus") or "UNKNOWN").upper().strip()
-            expire   = (raw.get("lastDateAllowedToEnterTheCountry") or "").strip()
-            file_no  = (raw.get("fileNo") or "").strip()
-            file_iss = (raw.get("fileIssuanceDate") or "").strip()
-            file_can = (raw.get("fileCancellationDate") or "").strip()
+            d = raw.get("fileValidity") or raw
+            status   = (d.get("fileStatus") or d.get("serviceStatus", {}).get("enDescription") or
+                        d.get("serviceStatus", {}).get("description") or "UNKNOWN").upper().strip()
+            expire   = (d.get("lastDateAllowedToEnterTheCountry") or d.get("lastDateAllowed") or
+                        d.get("fileExpireDate") or "").strip()
+            file_no  = (d.get("fileNo") or d.get("fileNoFormatted") or
+                        f"{d.get('fileDepartmentCode','')}/{d.get('fileServiceYear','')}/{d.get('fileServiceCode','')}/{d.get('fileSequenceNumber','')}").strip("/")
+            file_iss = (d.get("fileIssuanceDate") or d.get("issuanceDate") or "").strip()
+            file_can = (d.get("fileCancellationDate") or d.get("cancellationDate") or "").strip()
             alert, days = classify(status, expire)
 
             print(f"  ✓ Status: {status} | Expires: {expire} | Alert: {alert}")
