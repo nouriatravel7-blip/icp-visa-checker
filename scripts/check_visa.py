@@ -219,6 +219,12 @@ def main():
         # Register ONCE before the loop — never unroute
         def handle_route(route, request):
             if "fileValidityNew" in request.url:
+                # Print full request so we can replicate it as direct API call
+                print(f"\n  === API REQUEST ===")
+                print(f"  URL: {request.url}")
+                print(f"  BODY: {request.post_data}")
+                print(f"  HEADERS: {json.dumps(dict(request.headers), indent=2)}")
+                print(f"  ==================\n")
                 try:
                     resp = route.fetch()
                     captured["data"] = resp.json()
