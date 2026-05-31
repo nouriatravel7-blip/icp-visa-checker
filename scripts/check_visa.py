@@ -42,37 +42,79 @@ def get_captcha_token():
         )
         page = ctx.new_page()
         Stealth().apply_stealth_sync(page)
+
         def on_req(r):
             if "fileValidityNew" in r.url and r.method == "POST":
                 try:
-                    t = json.loads(r.post_data or "{}").get("recaptchaResponse")
-                    if t: captured["token"] = t; print("  ✓ Token captured from request!")
+                    body = json.loads(r.post_data or "{}")
+                    t = body.get("recaptchaResponse") or body.get("token") or body.get("captchaToken")
+                    if t:
+                        captured["token"] = t
+                        print("  ✓ Token captured from request!")
                 except: pass
+
         page.on("request", on_req)
         try:
-            page.goto(ICP_URL, wait_until="domcontentloaded", timeout=30000)
-            page.wait_for_selector("input[type='radio']", timeout=15000)
+            page.goto(ICP_URL, wait_until="domcontentloaded", timeout=45000)
+            page.wait_for_selector("input[type='radio']", timeout=20000)
             time.sleep(2)
-            for txt in ["File No.","Visa","Emirate Unified Number"]:
-                for lbl in page.locator("label").all():
-                    try:
-                        if txt.lower() in (lbl.inner_text() or "").lower():
-                            lbl.click(); time.sleep(0.4); break
-                    except: pass
+
+            # Select "Emirate Unified Number" under File Type
+            for lbl in page.locator("label").all():
+                try:
+                    txt = (lbl.inner_text() or "").strip().lower()
+                    if "emirate unified" in txt:
+                        lbl.click(); time.sleep(0.5); break
+                except: pass
+
+            # Fill in the UID field
             for inp in page.locator("input[type='text']:visible").all():
                 try:
-                    if "dd/" not in (inp.get_attribute("placeholder") or "").lower():
+                    ph = (inp.get_attribute("placeholder") or "").lower()
+                    if "dd/" not in ph and "date" not in ph:
                         inp.fill("000000000"); break
                 except: pass
-            time.sleep(3)
-            t = page.evaluate("()=>{const i=document.querySelector('input[name=\"cf-turnstile-response\"]');return i?i.value:null;}")
-            if t: captured["token"] = t; print("  ✓ Token from Turnstile widget!")
+
+            time.sleep(1)
+
+            # Click the Search/Check button
+            clicked = False
+            for btn in page.locator("button").all():
+                try:
+                    txt = (btn.inner_text() or "").strip().lower()
+                    if any(w in txt for w in ["search", "check", "submit", "enquire"]):
+                        btn.click(); clicked = True; print("  Clicked search button"); break
+                except: pass
+
+            if not clicked:
+                # Try any visible button as fallback
+                btns = page.locator("button:visible").all()
+                if btns:
+                    btns[-1].click(); print("  Clicked fallback button")
+
+            # Wait up to 10s for token to be captured via request intercept
+            for _ in range(20):
+                if captured.get("token"): break
+                time.sleep(0.5)
+
+            # Also check Turnstile hidden input
             if not captured.get("token"):
-                for btn in page.locator("button").all():
-                    try:
-                        if "search" in (btn.inner_text() or "").lower():
-                            btn.click(); time.sleep(3); break
-                    except: pass
+                t = page.evaluate("""()=>{
+                    const selectors = [
+                        'input[name="cf-turnstile-response"]',
+                        'input[name="g-recaptcha-response"]',
+                        'textarea[name="g-recaptcha-response"]'
+                    ];
+                    for(const s of selectors){
+                        const el = document.querySelector(s);
+                        if(el && el.value) return el.value;
+                    }
+                    return null;
+                }""")
+                if t:
+                    captured["token"] = t
+                    print("  ✓ Token from page widget!")
+
         except Exception as e:
             print(f"  Browser error: {e}")
         finally:
