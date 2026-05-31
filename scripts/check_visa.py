@@ -113,17 +113,16 @@ def check_via_browser(page, emp):
 
         time.sleep(1)
 
-        # Wait for Cloudflare to complete verification (up to 15s)
+        # Wait for Cloudflare to pass (up to 20s)
         print("  Waiting for Cloudflare verification...")
-        for _ in range(30):
-            fail_text = page.locator("text=Verification failed").count()
-            success = page.locator("text=Verification successful, input[name='cf-turnstile-response'][value!=''], textarea[name='g-recaptcha-response']").count()
-            if success > 0:
-                print("  ✓ Cloudflare verified!")
-                break
-            if fail_text == 0:
+        for _ in range(40):
+            if page.locator("text=Verification failed").count() == 0:
+                print("  ✓ Cloudflare passed!")
                 break
             time.sleep(0.5)
+        else:
+            print("  ✗ Cloudflare verification failed — skipping")
+            return None
 
         time.sleep(1)
 
@@ -181,7 +180,7 @@ def main():
     results = []
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False, channel="chrome", args=[
+        browser = p.chromium.launch(headless=False, args=[
             "--no-sandbox", "--disable-setuid-sandbox",
             "--disable-blink-features=AutomationControlled"
         ])
