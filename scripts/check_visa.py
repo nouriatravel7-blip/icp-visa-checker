@@ -1,6 +1,7 @@
 import json, time, os, base64, gspread
 from datetime import datetime
 from playwright.sync_api import sync_playwright
+from playwright_stealth import stealth_sync
 from google.oauth2.service_account import Credentials
 
 GOOGLE_SHEET_ID = os.environ["GOOGLE_SHEET_ID"]
@@ -40,6 +41,7 @@ def get_captcha_token():
             viewport={"width":1366,"height":768}
         )
         page = ctx.new_page()
+        stealth_sync(page)
         def on_req(r):
             if "fileValidityNew" in r.url and r.method == "POST":
                 try:
@@ -173,7 +175,7 @@ def main():
             "File No":               file_no,
             "File Status":           status,
             "File Issuance Date":    file_iss,
-            "Last Date Allowed":     expire,
+            "Last Date Allowed to Enter the Country": expire,
             "File Cancellation Date": file_can,
             "AlertLevel":            alert,
             "DaysLeft":              days if days is not None else "",
